@@ -1,53 +1,106 @@
-<?xml version="1.0"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <!--
   K3B 六轴机械臂 URDF (xacro 参数化版)
-  依据：淘宝在售 6 自由度舵机机械臂 DIY 套件实物图
-  结构：base_yaw(J1) -> shoulder_pitch(J2) -> elbow_pitch(J3)
-        -> wrist_pitch(J4) -> wrist_roll(J5) -> 两指夹爪(J6)
-  执行器：DS3218MG 标准 PWM 舵机（500-2500us，中点1500us，默认180°）
-  说明：杆长为按图片标注的估算值，实机前必须按实物实测校准：
-        1) 实测各关节轴到轴的直线距离（杆长）
-        2) 实测每个舵机的关节角限位（机械限位，避免卡死）
-        3) 确认各关节旋转轴朝向（本模型按常见正装结构取 Y/Z 轴）
-  用法：xacro k3b_arm.urdf.xacro > k3b_arm.urdf
+  =============================================================
+  执行器实测映射（2026-10-25）
+
+  S1  180° 位置   脉宽 850~1500   上电 850    → finger_left      限位 0~58.5°
+  S2  180° 位置   脉宽 500~2500   上电 1500   → base_yaw         限位 ±90°
+  S3  270° 位置   脉宽 500~2000   上电 2000   → shoulder_pitch   限位 ±101°
+  S4  270° 位置   脉宽 500~2500   上电 500    → elbow_pitch      限位 ±135°
+  S5  270° 位置   脉宽 600~2500   上电 1500   → wrist_pitch      限位 ±128°
+  速度 360° 连续   无位置反馈      —          → wrist_roll       无限位(continuous)
+
+  · S1~S4 为 WHEELTEC S20F，S5 为 PM15S（暂以 S20F 270° 代替，待实测修正）
+  · finger_right 用 mimic 跟随 finger_left，不单独接舵机
+  · wrist_roll 是速度舵机、无位置反馈，MoveIt 逆解时需 disable
+
+  机械件按实拍装配（套件为黑色阳极氧化支架 + 银色铝管 + 铝制平行连杆爪）：
+    单轴脚板 / 25T 舵盘 / 单轴长U支架 / 单轴短U支架 / 新款机械爪
+  舵机机身统一挂在上一级 link（壳体固定、舵盘跟动）。
+
+  结构：base_yaw(J1) → shoulder_pitch(J2) → elbow_pitch(J3)
+        → wrist_pitch(J4) → wrist_roll(J5) → 夹爪(J6)
+
+  姿态约定：全关节为 0 时即「直臂垂直」，各限位均相对该位姿定义。
+
+  待实测校准：杆长、直立位对应脉宽、真实质量与惯量
+  =============================================================
 -->
 <robot name="k3b_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- ============ 参数（按图估算，需实测校准） ============ -->
-  <xacro:property name="pi" value="3.141592653589793"/>
-  <xacro:property name="base_height"    value="0.14"/>   <!-- 底座高度(估算) -->
-  <xacro:property name="base_radius"    value="0.05"/>   <!-- 底座半径(估算) -->
-  <xacro:property name="upper_arm_len"  value="0.43"/>   <!-- 大臂长度，图中 43cm -->
-  <xacro:property name="forearm_len"    value="0.313"/>  <!-- 前臂长度，图中 31.3cm -->
-  <xacro:property name="wrist_len"      value="0.09"/>   <!-- 腕部长度，图中 9cm -->
-  <xacro:property name="gripper_len"    value="0.10"/>   <!-- 夹爪长度(估算) -->
-  <xacro:property name="joint_speed"    value="1.5"/>    <!-- 舵机额定速度 rad/s(估算) -->
+  <!-- ================= 杆长（按图估算，需实测替换） ================= -->
+  <xacro:property name="base_height"   value="0.095"/>
+  <xacro:property name="base_radius"   value="0.05"/>
+  <xacro:property name="base_plate_x"  value="0.090"/>   <!-- 规格图 9cm -->
+  <xacro:property name="base_plate_y"  value="0.084"/>   <!-- 规格图 8.4cm -->
+  <xacro:property name="base_box_h"    value="${base_height - s20f_h - 0.008}"/>
+  <xacro:property name="upper_arm_len" value="0.105"/>   <!-- 实测 S3→S4 轴心 10.5cm -->
+  <xacro:property name="forearm_len"   value="0.145"/>   <!-- 实测 S4→S5 轴心 14.5cm -->
+  <xacro:property name="wrist_len"     value="0.040"/>
 
-  <!-- 默认关节限位：按 DS3218MG 舵机默认 180° 量程设为 ±90°；
-       实际机械限位(支架阻挡)以实测为准，若舵机为 270° 版可放宽 -->
-  <xacro:property name="lim_base"   value="1.5708"/>  <!-- ±90° -->
-  <xacro:property name="lim_should" value="1.5708"/>  <!-- ±90° -->
-  <xacro:property name="lim_elbow"  value="1.5708"/>  <!-- ±90° -->
-  <xacro:property name="lim_wpitch" value="1.5708"/>  <!-- ±90° -->
-  <xacro:property name="lim_wroll"  value="1.5708"/>  <!-- ±90° -->
-  <xacro:property name="lim_finger" value="0.6"/>
+  <!-- ================= 关节限位（弧度，实测表） ================= -->
+  <xacro:property name="lim_base"   value="1.5708"/>   <!-- S2  180°  ±90°  -->
+  <xacro:property name="lim_should" value="1.7628"/>   <!-- S3  270°  ±101° -->
+  <xacro:property name="lim_elbow"  value="2.3562"/>   <!-- S4  270°  ±135° -->
+  <xacro:property name="lim_wpitch" value="2.2340"/>   <!-- S5  270°  ±128° -->
+  <xacro:property name="lim_finger" value="1.0210"/>   <!-- S1  180°  0~58.5° -->
+  <xacro:property name="joint_speed" value="1.5"/>
 
-  <!-- ============ 颜色 ============ -->
-  <material name="base_mat"> <color rgba="0.15 0.18 0.24 1.0"/> </material>
-  <material name="link_mat"> <color rgba="0.35 0.42 0.52 1.0"/> </material>
-  <material name="joint_mat"><color rgba="0.80 0.52 0.20 1.0"/> </material>
+  <!-- ================= 网格 ================= -->
+  <xacro:property name="mesh_dir" value="package://k3b_arm_urdf/meshes/"/>
+
+  <!-- S20F：输出轴 +Z、轴心在原点，机身向 -Z 展 45.92mm -->
+  <xacro:property name="s20f_h"    value="0.04592"/>
+  <xacro:property name="s20f_xoff" value="0.010"/>
+  <!-- DS3120（速度舵机）同上 -->
+  <xacro:property name="ds_h"      value="0.0455"/>
+  <xacro:property name="ds_xoff"   value="0.010"/>
+
+  <!-- 俯仰关节：把舵机 +Z 轴转到 +Y（机身在 -Y 侧展开） -->
+  <xacro:property name="servo_y_rpy" value="-${pi/2} 0 0"/>
+  <!-- 舵机沿 +Y 前移，让机身落进 U 支架两片侧板之间 -->
+  <xacro:property name="s20f_yoff" value="0.024"/>
+  <!-- U 支架：绕 Z 转 90°，两片侧板落到 Y=±28，夹住舵机安装法兰 -->
+  <xacro:property name="u_rpy" value="0 0 ${pi/2}"/>
+
+  <!-- ================= 材质 ================= -->
+  <material name="base_mat"> <color rgba="0.10 0.11 0.12 1.0"/> </material>
+  <material name="bracket_mat"> <color rgba="0.09 0.10 0.11 1.0"/> </material>
+  <material name="link_mat"> <color rgba="0.58 0.63 0.70 1.0"/> </material>
+  <material name="servo_mat"><color rgba="0.22 0.23 0.25 1.0"/> </material>
+  <material name="metal_mat"><color rgba="0.72 0.74 0.77 1.0"/> </material>
   <material name="grip_mat"> <color rgba="0.20 0.65 0.55 1.0"/> </material>
 
-  <!-- ============ 底座 ============ -->
+  <!-- ================= 底座 ================= -->
   <link name="base_link">
+    <!-- 底板（规格图：9 × 8.4cm 方板，实机为上下双板夹方箱） -->
     <visual>
-      <geometry><cylinder radius="${base_radius}" length="${base_height}"/></geometry>
-      <origin xyz="0 0 ${base_height/2}" rpy="0 0 0"/>
+      <geometry><box size="${base_plate_x} ${base_plate_y} 0.004"/></geometry>
+      <origin xyz="0 0 0.002" rpy="0 0 0"/>
+      <material name="bracket_mat"/>
+    </visual>
+    <!-- 中间方箱 -->
+    <visual>
+      <geometry><box size="0.055 0.055 ${base_box_h}"/></geometry>
+      <origin xyz="0 0 ${0.004 + base_box_h/2}" rpy="0 0 0"/>
       <material name="base_mat"/>
     </visual>
+    <!-- 顶板 -->
+    <visual>
+      <geometry><box size="${base_plate_x} ${base_plate_y} 0.004"/></geometry>
+      <origin xyz="0 0 ${0.004 + base_box_h + 0.002}" rpy="0 0 0"/>
+      <material name="bracket_mat"/>
+    </visual>
+    <!-- S2：驱动 base_yaw，轴朝上 -->
+    <visual>
+      <geometry><mesh filename="${mesh_dir}s20f.stl"/></geometry>
+      <origin xyz="${s20f_xoff} 0 ${base_height}" rpy="0 0 0"/>
+      <material name="servo_mat"/>
+    </visual>
     <collision>
-      <geometry><cylinder radius="${base_radius}" length="${base_height}"/></geometry>
-      <origin xyz="0 0 ${base_height/2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${base_radius}" length="${base_height - s20f_h}"/></geometry>
+      <origin xyz="0 0 ${(base_height - s20f_h)/2}" rpy="0 0 0"/>
     </collision>
     <inertial>
       <mass value="1.0"/>
@@ -55,15 +108,34 @@
     </inertial>
   </link>
 
-  <!-- ============ J1 底座偏航 ============ -->
+  <!-- ================= J1 底座偏航（S2） ================= -->
   <link name="base_yaw_link">
+    <!-- 25T 舵盘压在 S2 输出轴端，当转台 -->
     <visual>
-      <geometry><cylinder radius="0.04" length="0.05"/></geometry>
-      <origin xyz="0 0 0.025" rpy="0 0 0"/>
-      <material name="joint_mat"/>
+      <geometry><mesh filename="${mesh_dir}part_horn25t.stl"/></geometry>
+      <origin xyz="${s20f_xoff} 0 0.0025" rpy="0 0 0"/>
+      <material name="metal_mat"/>
+    </visual>
+    <!-- 短柱：把 U 支架垫到肩关节高度 -->
+    <visual>
+      <geometry><cylinder radius="0.016" length="0.026"/></geometry>
+      <origin xyz="0 0 0.017" rpy="0 0 0"/>
+      <material name="bracket_mat"/>
+    </visual>
+    <!-- 单轴长U支架：夹住 S3 -->
+    <visual>
+      <geometry><mesh filename="${mesh_dir}part_u_long.stl"/></geometry>
+      <origin xyz="0 0 0.042" rpy="${u_rpy}"/>
+      <material name="bracket_mat"/>
+    </visual>
+    <!-- S3：驱动 shoulder_pitch -->
+    <visual>
+      <geometry><mesh filename="${mesh_dir}s20f.stl"/></geometry>
+      <origin xyz="${s20f_xoff} ${s20f_yoff} 0.042" rpy="${servo_y_rpy}"/>
+      <material name="servo_mat"/>
     </visual>
     <collision>
-      <geometry><cylinder radius="0.04" length="0.05"/></geometry>
+      <geometry><cylinder radius="0.032" length="0.05"/></geometry>
       <origin xyz="0 0 0.025" rpy="0 0 0"/>
     </collision>
     <inertial>
@@ -76,19 +148,37 @@
     <child link="base_yaw_link"/>
     <origin xyz="0 0 ${base_height}" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-${lim_base}" upper="${lim_base}" effort="15.0" velocity="${joint_speed}"/>
-    <dynamics damping="0.2" friction="0.1"/>
+    <limit lower="-${lim_base}" upper="${lim_base}" effort="20.0" velocity="${joint_speed}"/>
+    <dynamics damping="0.3" friction="0.15"/>
   </joint>
 
-  <!-- ============ J2 肩俯仰 ============ -->
+  <!-- ================= J2 肩俯仰（S3） ================= -->
   <link name="upper_arm_link">
+    <!-- 大臂：两片平行黑色侧板（实拍结构） -->
     <visual>
-      <geometry><box size="0.05 0.05 ${upper_arm_len}"/></geometry>
-      <origin xyz="0 0 ${upper_arm_len/2}" rpy="0 0 0"/>
-      <material name="link_mat"/>
+      <geometry><box size="0.026 0.004 ${upper_arm_len}"/></geometry>
+      <origin xyz="0 0.013 ${upper_arm_len/2}" rpy="0 0 0"/>
+      <material name="bracket_mat"/>
+    </visual>
+    <visual>
+      <geometry><box size="0.026 0.004 ${upper_arm_len}"/></geometry>
+      <origin xyz="0 -0.013 ${upper_arm_len/2}" rpy="0 0 0"/>
+      <material name="bracket_mat"/>
+    </visual>
+    <!-- 单轴长U支架：夹住 S4 -->
+    <visual>
+      <geometry><mesh filename="${mesh_dir}part_u_long.stl"/></geometry>
+      <origin xyz="0 0 ${upper_arm_len}" rpy="${u_rpy}"/>
+      <material name="bracket_mat"/>
+    </visual>
+    <!-- S4：驱动 elbow_pitch -->
+    <visual>
+      <geometry><mesh filename="${mesh_dir}s20f.stl"/></geometry>
+      <origin xyz="${s20f_xoff} ${s20f_yoff} ${upper_arm_len}" rpy="${servo_y_rpy}"/>
+      <material name="servo_mat"/>
     </visual>
     <collision>
-      <geometry><box size="0.05 0.05 ${upper_arm_len}"/></geometry>
+      <geometry><box size="0.030 0.030 ${upper_arm_len}"/></geometry>
       <origin xyz="0 0 ${upper_arm_len/2}" rpy="0 0 0"/>
     </collision>
     <inertial>
@@ -101,19 +191,32 @@
     <child link="upper_arm_link"/>
     <origin xyz="0 0 0.05" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-${lim_should}" upper="${lim_should}" effort="15.0" velocity="${joint_speed}"/>
-    <dynamics damping="0.2" friction="0.1"/>
+    <limit lower="-${lim_should}" upper="${lim_should}" effort="20.0" velocity="${joint_speed}"/>
+    <dynamics damping="0.3" friction="0.15"/>
   </joint>
 
-  <!-- ============ J3 肘俯仰 ============ -->
+  <!-- ================= J3 肘俯仰（S4） ================= -->
   <link name="forearm_link">
+    <!-- 前臂：银色铝管 -->
     <visual>
-      <geometry><box size="0.045 0.045 ${forearm_len}"/></geometry>
+      <geometry><cylinder radius="0.011" length="${forearm_len}"/></geometry>
       <origin xyz="0 0 ${forearm_len/2}" rpy="0 0 0"/>
-      <material name="link_mat"/>
+      <material name="metal_mat"/>
+    </visual>
+    <!-- 单轴短U支架：夹住 S5 -->
+    <visual>
+      <geometry><mesh filename="${mesh_dir}part_u_short.stl"/></geometry>
+      <origin xyz="0 0 ${forearm_len}" rpy="${u_rpy}"/>
+      <material name="bracket_mat"/>
+    </visual>
+    <!-- S5（PM15S，暂以 S20F 代替）：驱动 wrist_pitch -->
+    <visual>
+      <geometry><mesh filename="${mesh_dir}s20f.stl"/></geometry>
+      <origin xyz="${s20f_xoff} ${s20f_yoff} ${forearm_len}" rpy="${servo_y_rpy}"/>
+      <material name="servo_mat"/>
     </visual>
     <collision>
-      <geometry><box size="0.045 0.045 ${forearm_len}"/></geometry>
+      <geometry><cylinder radius="0.011" length="${forearm_len}"/></geometry>
       <origin xyz="0 0 ${forearm_len/2}" rpy="0 0 0"/>
     </collision>
     <inertial>
@@ -126,20 +229,27 @@
     <child link="forearm_link"/>
     <origin xyz="0 0 ${upper_arm_len}" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-${lim_elbow}" upper="${lim_elbow}" effort="12.0" velocity="${joint_speed}"/>
-    <dynamics damping="0.2" friction="0.1"/>
+    <limit lower="-${lim_elbow}" upper="${lim_elbow}" effort="15.0" velocity="${joint_speed}"/>
+    <dynamics damping="0.25" friction="0.12"/>
   </joint>
 
-  <!-- ============ J4 腕俯仰 ============ -->
+  <!-- ================= J4 腕俯仰（S5） ================= -->
   <link name="wrist_link">
+    <!-- 腕部接盘（DS3120 机身本身占满这段，这里只做一块连接板） -->
     <visual>
-      <geometry><box size="0.04 0.04 ${wrist_len}"/></geometry>
-      <origin xyz="0 0 ${wrist_len/2}" rpy="0 0 0"/>
-      <material name="joint_mat"/>
+      <geometry><box size="0.030 0.030 0.012"/></geometry>
+      <origin xyz="0 0 0.006" rpy="0 0 0"/>
+      <material name="link_mat"/>
+    </visual>
+    <!-- 速度舵机 DS3120：驱动 wrist_roll -->
+    <visual>
+      <geometry><mesh filename="${mesh_dir}ds3120.stl"/></geometry>
+      <origin xyz="${ds_xoff} 0 ${wrist_len}" rpy="0 0 0"/>
+      <material name="servo_mat"/>
     </visual>
     <collision>
-      <geometry><box size="0.04 0.04 ${wrist_len}"/></geometry>
-      <origin xyz="0 0 ${wrist_len/2}" rpy="0 0 0"/>
+      <geometry><box size="0.030 0.030 0.012"/></geometry>
+      <origin xyz="0 0 0.006" rpy="0 0 0"/>
     </collision>
     <inertial>
       <mass value="0.2"/>
@@ -151,45 +261,57 @@
     <child link="wrist_link"/>
     <origin xyz="0 0 ${forearm_len}" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-${lim_wpitch}" upper="${lim_wpitch}" effort="8.0" velocity="${joint_speed}"/>
-    <dynamics damping="0.15" friction="0.1"/>
+    <limit lower="-${lim_wpitch}" upper="${lim_wpitch}" effort="10.0" velocity="${joint_speed}"/>
+    <dynamics damping="0.2" friction="0.12"/>
   </joint>
 
-  <!-- ============ J5 腕滚转 ============ -->
+  <!-- ================= J5 腕滚转（速度舵机，continuous） ================= -->
   <link name="wrist_roll_link">
     <visual>
-      <geometry><cylinder radius="0.03" length="0.06"/></geometry>
-      <origin xyz="0 0 0.03" rpy="0 0 0"/>
-      <material name="joint_mat"/>
+      <geometry><cylinder radius="0.022" length="0.028"/></geometry>
+      <origin xyz="0 0 0.014" rpy="0 0 0"/>
+      <material name="metal_mat"/>
     </visual>
     <collision>
-      <geometry><cylinder radius="0.03" length="0.06"/></geometry>
-      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.024" length="0.028"/></geometry>
+      <origin xyz="0 0 0.014" rpy="0 0 0"/>
     </collision>
     <inertial>
       <mass value="0.15"/>
       <inertia ixx="0.0003" ixy="0.0" ixz="0.0" iyy="0.0003" iyz="0.0" izz="0.0003"/>
     </inertial>
   </link>
-  <joint name="wrist_roll" type="revolute">
+  <joint name="wrist_roll" type="continuous">
     <parent link="wrist_link"/>
     <child link="wrist_roll_link"/>
     <origin xyz="0 0 ${wrist_len}" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-${lim_wroll}" upper="${lim_wroll}" effort="8.0" velocity="${joint_speed}"/>
-    <dynamics damping="0.15" friction="0.1"/>
+    <limit effort="10.0" velocity="6.0"/>
+    <dynamics damping="0.1" friction="0.05"/>
   </joint>
 
-  <!-- ============ 夹爪底座(固定) ============ -->
+  <!-- ================= 夹爪 ================= -->
   <link name="gripper_base_link">
     <visual>
-      <geometry><box size="0.05 0.04 0.04"/></geometry>
-      <origin xyz="0 0 0.02" rpy="0 0 0"/>
-      <material name="grip_mat"/>
+      <geometry><box size="0.032 0.026 0.016"/></geometry>
+      <origin xyz="0 0 0.014" rpy="0 0 0"/>
+      <material name="bracket_mat"/>
+    </visual>
+    <!-- S1：驱动夹爪开合，轴朝 +Y -->
+    <visual>
+      <geometry><mesh filename="${mesh_dir}s20f.stl"/></geometry>
+      <origin xyz="${s20f_xoff} -0.012 0.008" rpy="${servo_y_rpy}"/>
+      <material name="servo_mat"/>
+    </visual>
+    <!-- 新款机械爪（铝制平行连杆）：整机刚性挂载 -->
+    <visual>
+      <geometry><mesh filename="${mesh_dir}part_claw.stl"/></geometry>
+      <origin xyz="0 0 0.040" rpy="0 ${pi} 0"/>
+      <material name="metal_mat"/>
     </visual>
     <collision>
-      <geometry><box size="0.05 0.04 0.04"/></geometry>
-      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry><box size="0.032 0.026 0.016"/></geometry>
+      <origin xyz="0 0 0.014" rpy="0 0 0"/>
     </collision>
     <inertial>
       <mass value="0.1"/>
@@ -199,28 +321,20 @@
   <joint name="gripper_base_joint" type="fixed">
     <parent link="wrist_roll_link"/>
     <child link="gripper_base_link"/>
-    <origin xyz="0 0 0.06" rpy="0 0 0"/>
+    <origin xyz="0 0 0.028" rpy="0 0 0"/>
   </joint>
 
-  <!-- 末端工具坐标系(抓取参考点) -->
+  <!-- 末端工具坐标系（抓取参考点，落在爪尖附近） -->
   <link name="tool0"/>
   <joint name="tool0_joint" type="fixed">
     <parent link="gripper_base_link"/>
     <child link="tool0"/>
-    <origin xyz="0 0 0.05" rpy="0 0 0"/>
+    <origin xyz="0 0 0.096" rpy="0 0 0"/>
   </joint>
 
-  <!-- ============ J6 左指 ============ -->
+  <!-- ================= J6 左指（S1 驱动） ================= -->
+  <!-- 视觉由机械爪整机承担，这里只保留运动学链供 MoveIt 使用 -->
   <link name="finger_left_link">
-    <visual>
-      <geometry><box size="0.02 0.015 0.09"/></geometry>
-      <origin xyz="0 0 0.045" rpy="0 0 0"/>
-      <material name="grip_mat"/>
-    </visual>
-    <collision>
-      <geometry><box size="0.02 0.015 0.09"/></geometry>
-      <origin xyz="0 0 0.045" rpy="0 0 0"/>
-    </collision>
     <inertial>
       <mass value="0.02"/>
       <inertia ixx="0.00001" ixy="0.0" ixz="0.0" iyy="0.00001" iyz="0.0" izz="0.00001"/>
@@ -229,22 +343,13 @@
   <joint name="finger_left_joint" type="revolute">
     <parent link="gripper_base_link"/>
     <child link="finger_left_link"/>
-    <origin xyz="0 0.02 0" rpy="0 0 0"/>
+    <origin xyz="0 0.018 0.040" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="0" upper="${lim_finger}" effort="3.0" velocity="2.0"/>
   </joint>
 
-  <!-- ============ J6 右指 ============ -->
+  <!-- ================= J6 右指（mimic 跟随左指） ================= -->
   <link name="finger_right_link">
-    <visual>
-      <geometry><box size="0.02 0.015 0.09"/></geometry>
-      <origin xyz="0 0 0.045" rpy="0 0 0"/>
-      <material name="grip_mat"/>
-    </visual>
-    <collision>
-      <geometry><box size="0.02 0.015 0.09"/></geometry>
-      <origin xyz="0 0 0.045" rpy="0 0 0"/>
-    </collision>
     <inertial>
       <mass value="0.02"/>
       <inertia ixx="0.00001" ixy="0.0" ixz="0.0" iyy="0.00001" iyz="0.0" izz="0.00001"/>
@@ -253,12 +358,13 @@
   <joint name="finger_right_joint" type="revolute">
     <parent link="gripper_base_link"/>
     <child link="finger_right_link"/>
-    <origin xyz="0 -0.02 0" rpy="0 0 0"/>
+    <origin xyz="0 -0.018 0.040" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="0" upper="${lim_finger}" effort="3.0" velocity="2.0"/>
+    <limit lower="-${lim_finger}" upper="0" effort="3.0" velocity="2.0"/>
+    <mimic joint="finger_left_joint" multiplier="-1" offset="0"/>
   </joint>
 
-  <!-- 世界->底座，方便 RViz 固定 -->
+  <!-- ================= 世界坐标系 ================= -->
   <link name="world"/>
   <joint name="world_joint" type="fixed">
     <parent link="world"/>

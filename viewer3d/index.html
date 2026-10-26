@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>K3B 机械臂 · 三维图预览</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f7dff'/%3E%3Ctext x='16' y='21' font-size='11' font-family='sans-serif' font-weight='700' fill='white' text-anchor='middle'%3EK3B%3C/text%3E%3C/svg%3E" />
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:#0e1014;color:#e6e9ee;overflow:hidden;
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{display:grid;grid-template-columns:322px 1fr;height:100%}
+
+  /* ---------- 侧栏 ---------- */
+  .side{background:#12151a;border-right:1px solid #232830;display:flex;flex-direction:column;min-height:0}
+  .brand{display:flex;gap:11px;align-items:center;padding:17px 16px 13px}
+  .logo{
+    width:38px;height:38px;border-radius:10px;flex:none;
+    background:linear-gradient(140deg,#3b8dff,#12408f);
+    display:grid;place-items:center;font-weight:700;font-size:11.5px;letter-spacing:.5px;color:#fff;
+    box-shadow:0 4px 16px rgba(59,141,255,.28);
+  }
+  .brand h1{font-size:13.5px;margin:0;font-weight:600;letter-spacing:.2px}
+  .brand p{font-size:10.5px;color:#727b8a;margin:3px 0 0;word-break:break-all;line-height:1.4}
+
+  .searchWrap{padding:0 14px 10px}
+  #search{
+    width:100%;background:#171b21;border:1px solid #242a33;border-radius:8px;
+    color:#e6e9ee;font:inherit;font-size:12px;padding:7px 10px;outline:none;
+  }
+  #search::placeholder{color:#5f6876}
+  #search:focus{border-color:#2f5c9e;background:#181d24}
+
+  .list{flex:1;overflow:auto;padding:0 8px 14px;min-height:0;scrollbar-width:thin}
+  .list::-webkit-scrollbar{width:8px}
+  .list::-webkit-scrollbar-thumb{background:#252b34;border-radius:4px}
+  .list::-webkit-scrollbar-thumb:hover{background:#313945}
+
+  .grp{display:flex;align-items:center;gap:8px;font-size:10.5px;color:#6d7684;padding:13px 8px 6px;letter-spacing:.5px}
+  .grp::after{content:"";flex:1;height:1px;background:#1e232b}
+  .grp .n{font-variant-numeric:tabular-nums;color:#4f5764}
+
+  .row{display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:7px;cursor:pointer;border:1px solid transparent;user-select:none}
+  .row:hover{background:#181c23}
+  .row.on{background:#15233a;border-color:#274a7a}
+  .row input{accent-color:#3b8dff;width:13px;height:13px;cursor:pointer;flex:none;margin:0}
+  .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;color:#c7cedb}
+  .row.on .nm{color:#e8f0fb}
+  .row .sz{font-size:10px;color:#5f6876;font-variant-numeric:tabular-nums;flex:none}
+
+  .sideFoot{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:10px 14px;border-top:1px solid #1e232b;font-size:11px;color:#7c8593;
+  }
+  .ghost{
+    background:#171b21;border:1px solid #262c35;color:#98a1af;border-radius:6px;
+    font:inherit;font-size:11px;padding:4px 9px;cursor:pointer;
+  }
+  .ghost:hover{background:#1e242c;color:#dfe6ef}
+
+  /* ---------- 舞台 ---------- */
+  .stage{position:relative;min-width:0;min-height:0;overflow:hidden;background:#0e1014}
+  #cv{display:block;width:100%;height:100%}
+
+  .toast{
+    position:absolute;left:50%;top:16px;transform:translate(-50%,-8px);
+    opacity:0;pointer-events:none;z-index:5;
+    background:rgba(38,24,24,.95);border:1px solid #6b3030;color:#ffb4b4;
+    font-size:11.5px;padding:7px 14px;border-radius:8px;white-space:nowrap;
+    transition:opacity .2s ease,transform .2s ease;
+  }
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+
+  .bar{position:absolute;top:14px;right:14px;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none}
+  .bar > *{pointer-events:auto}
+  .seg,.chips{
+    display:flex;gap:2px;background:rgba(20,24,30,.88);
+    -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+    border:1px solid #262b33;border-radius:9px;padding:3px;
+  }
+  .seg button,.chips button{
+    border:0;background:transparent;color:#9aa3b1;font:inherit;font-size:11.5px;
+    padding:5px 9px;border-radius:6px;cursor:pointer;white-space:nowrap;transition:background .12s,color .12s;
+  }
+  .seg button:hover,.chips button:hover{background:#1e232b;color:#dbe2ea}
+  .seg button.on,.chips button.on{background:#1d3a63;color:#cfe3ff}
+  .chips{flex-wrap:wrap;max-width:436px;justify-content:flex-end}
+
+  .hud{
+    position:absolute;left:14px;top:14px;max-height:46vh;max-width:340px;overflow:auto;
+    background:rgba(18,21,26,.90);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+    border:1px solid #262b33;border-radius:10px;padding:9px 12px;min-width:212px;
+    font-size:11.5px;scrollbar-width:thin;
+  }
+  .hud:empty{display:none}
+  .hud .card + .card{margin-top:9px;padding-top:8px;border-top:1px solid #232830}
+  .hud .t{font-size:12px;color:#e6e9ee;margin-bottom:4px;font-weight:600;display:flex;gap:5px;align-items:baseline}
+  .hud .t .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hud .t .idx{color:#4a5464;font-weight:500;flex:none}
+  .hud .r{display:flex;justify-content:space-between;gap:16px;color:#77808e;padding:1px 0}
+  .hud .r b{color:#c8d6e6;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+  .hint{
+    position:absolute;right:16px;bottom:14px;font-size:10.5px;color:#4d5563;
+    letter-spacing:.2px;pointer-events:none;
+  }
+
+  .overlay{
+    position:absolute;inset:0;display:none;place-items:center;gap:14px;
+    background:radial-gradient(circle at 50% 45%,rgba(14,16,20,.55),rgba(14,16,20,.92));
+    -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);
+    flex-direction:column;color:#9aa3b1;font-size:12px;
+  }
+  .overlay.on{display:flex}
+  .spinner{
+    width:26px;height:26px;border-radius:50%;
+    border:2px solid #2a323d;border-top-color:#3b8dff;animation:spin .8s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .overlay .err{color:#ff8f8f;max-width:420px;text-align:center;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">K3B</div>
+      <div>
+        <h1>三维图预览</h1>
+        <p id="srcPath">正在读取目录…</p>
+      </div>
+    </div>
+    <div class="searchWrap">
+      <input id="search" type="search" placeholder="搜索型号，如 DS3218 / 支架" autocomplete="off" spellcheck="false" />
+    </div>
+    <div class="list" id="list"></div>
+    <div class="sideFoot">
+      <span id="selInfo">未选择</span>
+      <button class="ghost" id="clearSel">清空</button>
+    </div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <canvas id="cv"></canvas>
+
+    <div class="bar">
+      <div class="seg" id="views">
+        <button data-view="iso" class="on">等轴测</button>
+        <button data-view="front">前</button>
+        <button data-view="back">后</button>
+        <button data-view="left">左</button>
+        <button data-view="right">右</button>
+        <button data-view="top">顶</button>
+        <button data-view="bottom">底</button>
+      </div>
+      <div class="chips" id="chips">
+        <button data-opt="edges" class="on">边线</button>
+        <button data-opt="wire">线框</button>
+        <button data-opt="bbox">包围盒</button>
+        <button data-opt="grid" class="on">网格</button>
+        <button data-opt="axes" class="on">坐标轴</button>
+        <button data-opt="spin">自动旋转</button>
+        <button data-opt="reload" title="画面显示异常时点一下">重载渲染</button>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <div class="hud" id="hud"></div>
+    <div class="hint">左键旋转 · 滚轮缩放 · 右键平移 · 拖入 STEP 文件可直接查看</div>
+
+    <div class="overlay" id="overlay">
+      <div class="spinner"></div>
+      <div id="ovText">加载中…</div>
+    </div>
+  </main>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/jsm/" } }
+</script>
+<script src="./vendor/occt/occt-import-js.js"></script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

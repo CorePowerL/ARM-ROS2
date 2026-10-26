@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>K3B 机械臂 · URDF 装配预览</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f7dff'/%3E%3C/svg%3E" />
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:#0e1014;color:#e6e9ee;overflow:hidden;
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .app{display:grid;grid-template-columns:296px 1fr;height:100%}
+
+  .side{background:#12151a;border-right:1px solid #232830;display:flex;flex-direction:column;min-height:0}
+  .brand{display:flex;gap:11px;align-items:center;padding:17px 16px 12px}
+  .logo{width:38px;height:38px;border-radius:10px;flex:none;background:linear-gradient(140deg,#3b8dff,#12408f);
+    display:grid;place-items:center;font-weight:700;font-size:11px;color:#fff;letter-spacing:.5px;
+    box-shadow:0 4px 16px rgba(59,141,255,.28)}
+  .brand h1{font-size:13.5px;margin:0;font-weight:600}
+  .brand p{font-size:10.5px;color:#727b8a;margin:3px 0 0}
+
+  .joints{flex:1;overflow:auto;padding:0 14px 12px;min-height:0;scrollbar-width:thin}
+  .joints::-webkit-scrollbar{width:8px}
+  .joints::-webkit-scrollbar-thumb{background:#252b34;border-radius:4px}
+  .jrow{padding:9px 0 11px;border-bottom:1px solid #1c2128}
+  .jhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:5px}
+  .jname{font-size:12px;color:#c7cedb}
+  .jservo{font-size:9.5px;color:#5f6876;letter-spacing:.3px}
+  .jval{font-size:11px;color:#7fb2ee;font-variant-numeric:tabular-nums;min-width:52px;text-align:right}
+  input[type=range]{width:100%;height:16px;-webkit-appearance:none;background:transparent;margin:0}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;background:#2a323d;border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;margin-top:-5px;
+    border-radius:50%;background:#3b8dff;border:0;cursor:pointer;box-shadow:0 0 0 3px rgba(59,141,255,.16)}
+  input[type=range]:disabled{opacity:.35}
+
+  .foot{padding:10px 14px;border-top:1px solid #1e232b;display:flex;gap:8px;align-items:center;justify-content:space-between}
+  button{background:#171b21;border:1px solid #262c35;color:#98a1af;border-radius:6px;font:inherit;
+    font-size:11px;padding:5px 10px;cursor:pointer}
+  button:hover{background:#1e242c;color:#dfe6ef}
+  button.on{background:#1d3a63;border-color:#2c5a97;color:#cfe3ff}
+  .note{font-size:10px;color:#4d5563;line-height:1.5}
+
+  .stage{position:relative;min-width:0;min-height:0;overflow:hidden;background:#0e1014}
+  #cv{display:block;width:100%;height:100%}
+  .bar{position:absolute;top:14px;right:14px;display:flex;gap:2px;padding:3px;
+    background:rgba(20,24,30,.88);border:1px solid #262b33;border-radius:9px;
+    -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+  .bar button{border:0;background:transparent}
+  .hud{position:absolute;left:14px;top:14px;background:rgba(18,21,26,.9);border:1px solid #262b33;
+    border-radius:10px;padding:10px 13px;font-size:11.5px;
+    -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+  .hud .t{font-size:12px;color:#e6e9ee;font-weight:600;margin-bottom:4px}
+  .hud .r{display:flex;justify-content:space-between;gap:18px;color:#77808e}
+  .hud .r b{color:#c8d6e6;font-weight:500;font-variant-numeric:tabular-nums}
+  .tip{position:absolute;right:16px;bottom:14px;font-size:10.5px;color:#4d5563;pointer-events:none}
+  .err{position:absolute;left:50%;top:48%;transform:translate(-50%,-50%);color:#ff8f8f;
+    font-size:12px;text-align:center;line-height:1.7;max-width:520px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">K3B</div>
+      <div>
+        <h1>URDF 装配预览</h1>
+        <p>k3b_arm.urdf · 真实舵机网格</p>
+      </div>
+    </div>
+    <div class="joints" id="joints"></div>
+    <div class="foot">
+      <span class="note" id="note">全零 = 直臂垂直</span>
+      <button id="reset">复位</button>
+    </div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="bar">
+      <button data-view="iso" class="on">等轴测</button>
+      <button data-view="front">前</button>
+      <button data-view="left">左</button>
+      <button data-view="top">顶</button>
+    </div>
+    <div class="hud" id="hud"></div>
+    <div class="tip">左键旋转 · 滚轮缩放 · 右键平移</div>
+  </main>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "/viewer3d/vendor/three.module.js", "three/addons/": "/viewer3d/vendor/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = (id) => document.getElementById(id);
+const URDF = '/k3b_arm_urdf/k3b_arm.urdf';
+const MESH_BASE = '/k3b_arm_urdf/meshes/';
+
+/* ---------------- 渲染器 ---------------- */
+const renderer = new THREE.WebGLRenderer({ canvas: $('cv'), antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.95;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0e1014);
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 500);
+camera.up.set(0, 0, 1);
+camera.position.set(0.9, -1.1, 0.75);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.09;
+controls.screenSpacePanning = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+scene.add(new THREE.HemisphereLight(0xd6e4ff, 0x11151a, 0.5));
+const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(0.8, -1.2, 1.6);
+const fill = new THREE.DirectionalLight(0xb8cdf0, 0.55); fill.position.set(-1.4, -0.5, 0.6);
+const rim = new THREE.DirectionalLight(0x7fa8f0, 0.45); rim.position.set(0.3, 1.6, 0.8);
+scene.add(key, fill, rim);
+
+/* ---------------- STL 解析 ---------------- */
+const geoCache = new Map();
+async function loadSTL(file) {
+  if (geoCache.has(file)) return geoCache.get(file);
+  const p = (async () => {
+    const res = await fetch(MESH_BASE + file);
+    if (!res.ok) throw new Error(`网格 ${file} 加载失败 HTTP ${res.status}`);
+    const buf = await res.arrayBuffer();
+    const dv = new DataView(buf);
+    const n = dv.getUint32(80, true);
+    const pos = new Float32Array(n * 9);
+    const nor = new Float32Array(n * 9);
+    let o = 84;
+    for (let i = 0; i < n; i++) {
+      const nx = dv.getFloat32(o, true), ny = dv.getFloat32(o + 4, true), nz = dv.getFloat32(o + 8, true);
+      o += 12;
+      for (let v = 0; v < 3; v++) {
+        const b = i * 9 + v * 3;
+        pos[b] = dv.getFloat32(o, true);
+        pos[b + 1] = dv.getFloat32(o + 4, true);
+        pos[b + 2] = dv.getFloat32(o + 8, true);
+        nor[b] = nx; nor[b + 1] = ny; nor[b + 2] = nz;
+        o += 12;
+      }
+      o += 2;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    g.computeBoundingBox();
+    return g;
+  })();
+  geoCache.set(file, p);
+  return p;
+}
+
+/* ---------------- 小工具 ---------------- */
+const AXX = new THREE.Vector3(1, 0, 0);
+const AXY = new THREE.Vector3(0, 1, 0);
+const AXZ = new THREE.Vector3(0, 0, 1);
+
+function rpyQuat(r, p, y) {
+  return new THREE.Quaternion()
+    .setFromAxisAngle(AXZ, y)
+    .multiply(new THREE.Quaternion().setFromAxisAngle(AXY, p))
+    .multiply(new THREE.Quaternion().setFromAxisAngle(AXX, r));
+}
+const nums = (s, d = [0, 0, 0]) =>
+  (s || '').trim().split(/\s+/).map(Number).map((v) => (isFinite(v) ? v : 0)).concat(d).slice(0, 3);
+const rgba = (s) => {
+  const a = (s || '0.7 0.7 0.7 1').trim().split(/\s+/).map(Number);
+  return new THREE.Color(a[0] || 0.7, a[1] || 0.7, a[2] || 0.7);
+};
+
+/* ---------------- 解析 URDF 并建树 ---------------- */
+const SERVO_OF = {
+  base_yaw: 'S2 · 180°',
+  shoulder_pitch: 'S3 · 270°',
+  elbow_pitch: 'S4 · 270°',
+  wrist_pitch: 'S5 · 270°(PM15S 代)',
+  wrist_roll: '速度 · 360°',
+  finger_left_joint: 'S1 · 180°',
+  finger_right_joint: 'mimic 左指',
+};
+
+async function build(urdfText) {
+  const doc = new DOMParser().parseFromString(urdfText, 'application/xml');
+  const robot = doc.documentElement;
+
+  const mats = {};
+  for (const m of robot.querySelectorAll(':scope > material')) {
+    const c = m.querySelector('color');
+    if (c) mats[m.getAttribute('name')] = rgba(c.getAttribute('rgba'));
+  }
+
+  const links = {};
+  for (const l of robot.querySelectorAll(':scope > link')) {
+    links[l.getAttribute('name')] = l;
+  }
+
+  const joints = [];
+  for (const j of robot.querySelectorAll(':scope > joint')) {
+    const o = j.querySelector('origin');
+    const ax = j.querySelector('axis');
+    const lim = j.querySelector('limit');
+    const mim = j.querySelector('mimic');
+    joints.push({
+      name: j.getAttribute('name'),
+      type: j.getAttribute('type'),
+      parent: j.querySelector('parent').getAttribute('link'),
+      child: j.querySelector('child').getAttribute('link'),
+      xyz: nums(o && o.getAttribute('xyz')),
+      rpy: nums(o && o.getAttribute('rpy')),
+      axis: ax ? new THREE.Vector3(...nums(ax.getAttribute('xyz'), [1, 0, 0])).normalize() : new THREE.Vector3(0, 0, 1),
+      lower: lim && lim.hasAttribute('lower') ? parseFloat(lim.getAttribute('lower')) : null,
+      upper: lim && lim.hasAttribute('upper') ? parseFloat(lim.getAttribute('upper')) : null,
+      mimic: mim ? { joint: mim.getAttribute('joint'), mul: parseFloat(mim.getAttribute('multiplier') || '1') } : null,
+    });
+  }
+
+  const childJoints = {};
+  for (const j of joints) (childJoints[j.parent] = childJoints[j.parent] || []).push(j);
+  const allChildren = new Set(joints.map((j) => j.child));
+  const roots = Object.keys(links).filter((n) => !allChildren.has(n));
+
+  const meshMats = {};
+  async function linkNode(name) {
+    const el = links[name];
+    const g = new THREE.Group();
+    g.name = name;
+    if (!el) return g;
+
+    for (const v of el.querySelectorAll(':scope > visual')) {
+      const geoEl = v.querySelector('geometry');
+      if (!geoEl) continue;
+      const o = v.querySelector('origin');
+      const xyz = nums(o && o.getAttribute('xyz'));
+      const rpy = nums(o && o.getAttribute('rpy'));
+
+      const matEl = v.querySelector('material');
+      let color = matEl ? rgba(matEl.querySelector('color') && matEl.querySelector('color').getAttribute('rgba')) : null;
+      if (matEl && !matEl.querySelector('color')) color = mats[matEl.getAttribute('name')] || null;
+      color = color || new THREE.Color(0.65, 0.68, 0.72);
+
+      const mk = (geo) => {
+        const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+          color, metalness: 0.15, roughness: 0.62, side: THREE.DoubleSide,
+        }));
+        m.position.set(...xyz);
+        m.quaternion.copy(rpyQuat(...rpy));
+        g.add(m);
+      };
+
+      const meshEl = geoEl.querySelector('mesh');
+      const boxEl = geoEl.querySelector('box');
+      const cylEl = geoEl.querySelector('cylinder');
+
+      if (meshEl) {
+        const fn = meshEl.getAttribute('filename').split('/').pop();
+        mk(await loadSTL(fn));
+      } else if (boxEl) {
+        const s = nums(boxEl.getAttribute('size'));
+        mk(new THREE.BoxGeometry(s[0], s[1], s[2]));
+      } else if (cylEl) {
+        const r = parseFloat(cylEl.getAttribute('radius'));
+        const L = parseFloat(cylEl.getAttribute('length'));
+        const geo = new THREE.CylinderGeometry(r, r, L, 28);
+        geo.rotateX(Math.PI / 2);   // URDF 圆柱沿 Z
+        mk(geo);
+      }
+    }
+    return g;
+  }
+
+  const jointNodes = {};   // jointName -> { axisNode, joint }
+  const linkGroups = {};
+
+  async function addLink(name, parentObj) {
+    const lg = await linkNode(name);
+    linkGroups[name] = lg;
+    parentObj.add(lg);
+    for (const j of (childJoints[name] || [])) {
+      const jn = new THREE.Group();
+      jn.position.set(...j.xyz);
+      jn.quaternion.copy(rpyQuat(...j.rpy));
+      const an = new THREE.Group();
+      jn.add(an);
+      lg.add(jn);
+      jointNodes[j.name] = { axisNode: an, joint: j };
+      await addLink(j.child, an);
+    }
+  }
+
+  const rootObj = new THREE.Group();
+  scene.add(rootObj);
+  for (const r of roots) await addLink(r, rootObj);
+
+  return { joints, jointNodes };
+}
+
+/* ---------------- 关节控制 ---------------- */
+let model = null;
+const angles = {};
+
+function applyAll() {
+  for (const [name, { axisNode, joint }] of Object.entries(model.jointNodes)) {
+    if (joint.type === 'fixed') continue;
+    let a = angles[name] || 0;
+    if (joint.mimic) a = (angles[joint.mimic.joint] || 0) * joint.mimic.mul;
+    axisNode.quaternion.setFromAxisAngle(joint.axis, a);
+  }
+}
+
+function buildSliders() {
+  const wrap = $('joints');
+  wrap.innerHTML = '';
+  for (const j of model.joints) {
+    if (j.type === 'fixed') continue;
+    const lo = j.type === 'continuous' ? -Math.PI : (j.lower ?? -Math.PI);
+    const hi = j.type === 'continuous' ? Math.PI : (j.upper ?? Math.PI);
+    angles[j.name] = 0;
+
+    const row = document.createElement('div');
+    row.className = 'jrow';
+    row.innerHTML =
+      `<div class="jhead">
+         <span class="jname">${j.name}</span>
+         <span class="jservo">${SERVO_OF[j.name] || ''}</span>
+       </div>
+       <div class="jhead" style="margin-bottom:2px">
+         <input type="range" min="${lo}" max="${hi}" step="0.005" value="0" ${j.mimic ? 'disabled' : ''}/>
+         <span class="jval">0.0°</span>
+       </div>`;
+
+    const input = row.querySelector('input');
+    const val = row.querySelector('.jval');
+    const upd = () => {
+      const deg = (angles[j.name] * 180) / Math.PI;
+      val.textContent = deg.toFixed(1) + '°';
+      // mimic 同步显示
+      for (const k of Object.keys(model.jointNodes)) {
+        if (model.jointNodes[k].joint.mimic && model.jointNodes[k].joint.mimic.joint === j.name) {
+          const mdeg = deg * model.jointNodes[k].joint.mimic.mul;
+          const el = wrap.querySelector(`[data-mimic="${k}"]`);
+          if (el) el.textContent = mdeg.toFixed(1) + '°';
+        }
+      }
+    };
+    if (j.mimic) {
+      val.setAttribute('data-mimic', j.name);
+      val.textContent = '跟随';
+    } else {
+      input.addEventListener('input', () => {
+        angles[j.name] = parseFloat(input.value);
+        applyAll();
+        upd();
+      });
+    }
+    wrap.appendChild(row);
+  }
+}
+
+/* ---------------- 视图 ---------------- */
+let box3 = new THREE.Box3();
+
+/** 按包围盒 8 角点精确算取景距离 */
+function fitDistance(box, dir) {
+  const center = box.getCenter(new THREE.Vector3());
+  const forward = dir.clone().normalize().negate();
+  const upRef = Math.abs(dir.z) > 0.985 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+  const right = new THREE.Vector3().crossVectors(upRef, forward).normalize();
+  const up = new THREE.Vector3().crossVectors(forward, right).normalize();
+  const vFov = THREE.MathUtils.degToRad(camera.fov);
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  const tanV = Math.tan(vFov / 2), tanH = Math.tan(hFov / 2);
+  const { min, max } = box;
+  let dist = 0;
+  for (let i = 0; i < 8; i++) {
+    const v = new THREE.Vector3(
+      i & 1 ? max.x : min.x,
+      i & 2 ? max.y : min.y,
+      i & 4 ? max.z : min.z,
+    ).sub(center);
+    const dz = v.dot(forward);
+    dist = Math.max(dist, Math.abs(v.dot(right)) / tanH - dz, Math.abs(v.dot(up)) / tanV - dz);
+  }
+  return Math.max(dist, 0.01) * 1.12;
+}
+
+function fit(dir) {
+  box3.setFromObject(scene);
+  if (box3.isEmpty()) return;
+  const c = box3.getCenter(new THREE.Vector3());
+  const size = box3.getSize(new THREE.Vector3());
+  const d = (dir || new THREE.Vector3(1, -1.1, 0.62)).clone().normalize();
+  const dist = fitDistance(box3, d);
+
+  camera.up.set(Math.abs(d.z) > 0.985 ? 0 : 0, Math.abs(d.z) > 0.985 ? 1 : 0, Math.abs(d.z) > 0.985 ? 0 : 1);
+  camera.position.copy(c).addScaledVector(d, dist);
+  camera.near = Math.max(0.005, dist / 500);
+  camera.far = dist * 24;
+  camera.updateProjectionMatrix();
+  controls.target.copy(c);
+  controls.update();
+
+  $('hud').innerHTML =
+    `<div class="t">装配外形</div>
+     <div class="r"><span>X × Y × Z</span><b>${(size.x * 100).toFixed(1)} × ${(size.y * 100).toFixed(1)} × ${(size.z * 100).toFixed(1)} cm</b></div>
+     <div class="r"><span>总高</span><b>${(size.z * 100).toFixed(1)} cm</b></div>`;
+}
+
+/* ---------------- 启动 ---------------- */
+function resize() {
+  const r = $('stage').getBoundingClientRect();
+  const w = Math.max(2, Math.round(r.width)), h = Math.max(2, Math.round(r.height));
+  renderer.setSize(w, h, true);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe($('stage'));
+resize();
+
+function tick() {
+  requestAnimationFrame(tick);
+  try { controls.update(); renderer.render(scene, camera); } catch (e) { console.error(e); }
+}
+tick();
+
+(async () => {
+  try {
+    const res = await fetch(URDF);
+    if (!res.ok) throw new Error(`URDF 加载失败 HTTP ${res.status}`);
+    model = await build(await res.text());
+    buildSliders();
+    applyAll();
+    fit();
+  } catch (e) {
+    console.error(e);
+    const d = document.createElement('div');
+    d.className = 'err';
+    d.textContent = '加载失败：' + e.message + '（需要通过 http:// 打开，不能双击文件）';
+    $('stage').appendChild(d);
+  }
+})();
+
+$('reset').addEventListener('click', () => {
+  for (const k of Object.keys(angles)) angles[k] = 0;
+  document.querySelectorAll('#joints input').forEach((i) => { i.value = 0; });
+  document.querySelectorAll('#joints .jval').forEach((v) => {
+    v.textContent = v.hasAttribute('data-mimic') ? '跟随' : '0.0°';
+  });
+  applyAll();
+});
+
+document.querySelector('.bar').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  document.querySelectorAll('.bar button').forEach((x) => x.classList.toggle('on', x === b));
+  const m = {
+    iso: new THREE.Vector3(1, -1.1, 0.62),
+    front: new THREE.Vector3(0, -1, 0),
+    left: new THREE.Vector3(-1, 0, 0),
+    top: new THREE.Vector3(0, 0, 1),
+  }[b.dataset.view];
+  if (m) fit(m);
+});
+
+/* 调试钩子 */
+window.__preview = {
+  camera, controls, scene,
+  get box() { return box3; },
+  get angles() { return angles; },
+  info() {
+    const c = box3.isEmpty() ? null : box3.getCenter(new THREE.Vector3());
+    return {
+      cam: camera.position.toArray().map((n) => +n.toFixed(3)),
+      target: controls.target.toArray().map((n) => +n.toFixed(3)),
+      size: box3.isEmpty() ? null : box3.getSize(new THREE.Vector3()).toArray().map((n) => +n.toFixed(3)),
+      center: c ? c.toArray().map((n) => +n.toFixed(3)) : null,
+      aspect: +camera.aspect.toFixed(3),
+      meshes: (() => { let n = 0; scene.traverse((o) => { if (o.isMesh) n++; }); return n; })(),
+    };
+  },
+  setView(name) { document.querySelector(`.bar [data-view=${name}]`).click(); },
+  zoom(f) { camera.position.lerp(controls.target, 1 - f); controls.update(); },
+  look(y, z) { controls.target.set(...y); },
+};
+</script>
+</body>
+</html>
