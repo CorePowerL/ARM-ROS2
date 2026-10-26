@@ -1,4 +1,4 @@
-# ARM-ROS2 · K3B 六轴机械臂 ROS2 工程
+# ARM-ROS2 · K3B 机械臂 ROS2 工程
 
 基于 **KICKPI K3B（瑞芯微 RK3562, aarch64）** 主控板 + **STM32F407** 下位机 + **WHEELTEC S20F / PM15S / DS3120 舵机** 的六轴机械臂 ROS2 控制工程。
 
@@ -23,6 +23,20 @@
 | 舵机 | WHEELTEC **S20F** ×4（S1/S2 180°、S3/S4 270°）+ **PM15S** ×1（S5）+ **DS3120** ×1（360° 速度舵机） |
 | 舵机供电 | 6.8V ≥15A 独立电源（与逻辑共地隔离） |
 | ROS 版本 | ROS2 Jazzy（Ubuntu 24.04） |
+
+## 舵机编号 ↔ 关节映射（实测 2026-10-25）
+
+| 舵机 | 类型 | 脉宽范围(μs) | 上电初始 | URDF 关节名 | 作用 | 限位(相对直立位) |
+|---|---|---|---|---|---|---|
+| S1 | 180° 位置 | 850–1500 | 850 | `finger_left_joint` | 夹爪开合 | 0 ~ 58.5° |
+| S2 | 180° 位置 | 500–2500 | 1500 | `base_yaw` | 底座偏航 | ±90° |
+| S3 | 270° 位置 | 500–2000 | 2000 | `shoulder_pitch` | 肩俯仰 | ±101° |
+| S4 | 270° 位置 | 500–2500 | 500 | `elbow_pitch` | 肘俯仰 | ±135° |
+| S5 | 270° 位置 | 600–2500 | 1500 | `wrist_pitch` | 腕俯仰 | ±128° |
+| 速度舵机 | 360° 连续 | — | — | `wrist_roll` | 夹爪旋转 | 无限位(continuous) |
+
+> `finger_right_joint` 通过 `<mimic joint="finger_left_joint" multiplier="-1"/>` 跟随左指，不单独接舵机。
+> `wrist_roll` 是速度舵机，无位置反馈，URDF 中为 `continuous` 类型，不参与 MoveIt 逆解。
 
 ## 关节结构
 
@@ -64,10 +78,14 @@ ARM-ROS2/
 
 ## 快速开始
 
-### 1. 预览 URDF 模型（RViz2）
+### 0. 浏览器预览（无需 ROS）
+
+双击 `k3b_arm_preview.html`，可拖动关节滑块、旋转视角查看机械臂。
+
+### 1. RViz2 预览
 
 ```bash
-sudo apt install ros-jazzy-robot-state-publisher ros-jazzy-joint-state-publisher-gui ros-jazzy-rviz2
+sudo apt install ros-jazzy-robot_state_publisher ros-jazzy-joint-state-publisher-gui ros-jazzy-rviz2
 
 # 终端 1：发布模型 + TF
 ros2 run robot_state_publisher robot_state_publisher \
@@ -76,7 +94,7 @@ ros2 run robot_state_publisher robot_state_publisher \
 # 终端 2：拖动关节
 ros2 run joint_state_publisher_gui joint_state_publisher_gui
 
-# 终端 3：可视化
+# 终端 3：可视化（Fixed Frame 选 world）
 rviz2
 ```
 
@@ -94,8 +112,9 @@ ros2 run moveit_setup_assistant moveit_setup_assistant
 ```
 
 导入 `k3b_arm.urdf`，规划组：
-- `arm`：5 个转动关节（base_yaw → wrist_roll）
-- `gripper`：2 指（finger_left + finger_right）
+- `arm`：**4 个位置关节**（`base_yaw` + `shoulder_pitch` + `elbow_pitch` + `wrist_pitch`）
+  - **不要把 `wrist_roll` 加入规划组**——它是 360° 速度舵机，无位置反馈，不做逆解
+- `gripper`：`finger_left_joint`（右指 mimic，自动跟随）
 - 逆解：默认 KDL，效果差换 TRAC-IK
 
 ## 开发路线
@@ -114,13 +133,13 @@ ros2 run moveit_setup_assistant moveit_setup_assistant
 
 ## ⚠️ 实机前必须校准
 
-当前 URDF 为按图估算的原理性结构，驱动真实机械臂前必须完成：
+当前 URDF 的杆长为按图估算，驱动真实机械臂前必须完成：
 
 1. **杆长**：`upper_arm_len`(0.105)、`forearm_len`(0.145) 已按实测螺栓孔心距填入；`wrist_len`(0.040)、`base_height`(0.095) 仍为估算
 2. **关节限位实测**：避免规划到卡死位置
 3. **轴朝向核对**：与实物安装方向一致
 4. **真实质量/惯量**：Gazebo 物理仿真前必须填写
-5. **夹爪开合实测**：调整 `lim_finger` 和指长
+5. **夹爪开合量**：确认 `lim_finger`(58.5°) 与实际工件尺寸匹配
 
 ## 角度→脉宽映射（STM32 侧）
 

@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='35' y='10' width='30' height='80' rx='6' fill='%23596b85'/><rect x='42' y='0' width='16' height='20' fill='%23cc8533'/></svg>">
+<title>K3B 机械臂 URDF 预览</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1d24; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #e0e4ec; }
+  #canvas-wrap { position: absolute; inset: 0; }
+  #panel {
+    position: absolute; top: 16px; left: 16px; width: 300px;
+    background: rgba(28,32,42,0.92); backdrop-filter: blur(8px);
+    border: 1px solid #333947; border-radius: 10px; padding: 16px;
+    max-height: calc(100vh - 32px); overflow-y: auto;
+  }
+  #panel h1 { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: #fff; }
+  #panel .sub { font-size: 11px; color: #8a93a6; margin-bottom: 14px; line-height: 1.5; }
+  .j-row { margin-bottom: 12px; }
+  .j-row label { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+  .j-row label .name { color: #c8d0e0; }
+  .j-row label .val { color: #7ec8a0; font-family: Consolas, monospace; }
+  .j-row input[type=range] { width: 100%; height: 4px; -webkit-appearance: none; background: #3a4152; border-radius: 2px; outline: none; }
+  .j-row input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: #cc8533; cursor: pointer; border: 2px solid #1a1d24;
+  }
+  .j-row .meta { font-size: 10px; color: #6b7385; margin-top: 2px; }
+  .j-row.continuous label .val { color: #d4a54a; }
+  .j-row.mimic label .name { color: #6b7385; }
+  .j-row.mimic { opacity: 0.65; }
+  button {
+    width: 100%; padding: 8px; margin-top: 6px; background: #2a3040; color: #e0e4ec;
+    border: 1px solid #3a4152; border-radius: 6px; cursor: pointer; font-size: 12px;
+  }
+  button:hover { background: #353c4e; }
+  #info {
+    position: absolute; bottom: 16px; left: 16px; font-size: 11px; color: #6b7385;
+    background: rgba(28,32,42,0.8); padding: 8px 12px; border-radius: 6px; line-height: 1.6;
+  }
+  #info b { color: #a0a8b8; }
+</style>
+</head>
+<body>
+<div id="canvas-wrap"></div>
+<div id="panel">
+  <h1>K3B 机械臂预览</h1>
+  <div class="sub">WHEELTEC S20F ×5 + 360°速度舵机 ×1<br>拖拽旋转视角 · 滚轮缩放</div>
+  <div id="joints"></div>
+  <button id="reset">复位到直立位</button>
+</div>
+<div id="info">
+  <b>运动链</b>：base_yaw(S2) → shoulder_pitch(S3) → elbow_pitch(S4) → wrist_pitch(S5) → wrist_roll(360°速度) → finger(S1)<br>
+  <b>单位</b>：米 · <b>wrist_roll</b> 为 continuous（速度舵机，无位置限位）· 右指 mimic 左指
+</div>
+
+<script src="assets/gripper_data.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://fastly.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://fastly.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+// ====== 几何参数（来自 k3b_arm.urdf.xacro，单位米） ======
+const P = {
+  base_h: 0.14, base_r: 0.05,
+  yaw_h: 0.05, yaw_r: 0.04,
+  upper: 0.43, fore: 0.313, wrist: 0.09,
+  roll_h: 0.06, roll_r: 0.03,
+  grip_w: 0.05, grip_d: 0.04, grip_h: 0.04,
+  finger_w: 0.02, finger_d: 0.015, finger_l: 0.09,
+};
+// 颜色（URDF material）
+const C = {
+  base: 0x262e3d, link: 0x596b85, joint: 0xcc8533, grip: 0x33a68c
+};
+
+// ====== 关节限位（rad） ======
+const JOINTS = [
+  { id: 'base_yaw',      name: 'base_yaw (S2,180°)',   lo: -1.5708, hi: 1.5708,  axis: 'y',  val: 0 },
+  { id: 'shoulder_pitch',name: 'shoulder_pitch (S3,270°)',lo: -1.763, hi: 1.763, axis: 'x',  val: 0 },
+  { id: 'elbow_pitch',   name: 'elbow_pitch (S4,270°)',  lo: -2.356, hi: 2.356,   axis: 'x',  val: 0 },
+  { id: 'wrist_pitch',   name: 'wrist_pitch (S5,270°)',  lo: -2.234, hi: 2.234,   axis: 'x',  val: 0 },
+  { id: 'wrist_roll',    name: 'wrist_roll (360°速度)',  lo: -Math.PI, hi: Math.PI, axis: 'y', val: 0, continuous: true },
+  { id: 'finger_left',   name: 'finger_left (S1,夹爪)',  lo: 0,      hi: 1.022,   axis: 'x',  val: 0 },
+];
+const DEG = 180 / Math.PI;
+
+// ====== 场景 ======
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1d24);
+scene.fog = new THREE.Fog(0x1a1d24, 2, 6);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.01, 100);
+camera.position.set(0.9, 1.0, 1.2);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.getElementById('canvas-wrap').appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.6, 0);
+controls.enableDamping = true;
+
+// 灯光
+scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+const key = new THREE.DirectionalLight(0xffffff, 0.9);
+key.position.set(2, 3, 2); key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+key.shadow.camera.left = -1; key.shadow.camera.right = 1;
+key.shadow.camera.top = 1.5; key.shadow.camera.bottom = -0.5;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x88aaff, 0.25);
+fill.position.set(-2, 1, -1); scene.add(fill);
+
+// 地面网格
+const grid = new THREE.GridHelper(2, 20, 0x3a4152, 0x2a2f3d);
+grid.position.y = 0; scene.add(grid);
+
+// 坐标轴（小）
+const axes = new THREE.AxesHelper(0.15);
+axes.position.y = 0.001; scene.add(axes);
+
+// ====== 建机械臂（Three.js Y up；URDF Z up -> 映射为 Y） ======
+function mat(color) { return new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.2 }); }
+function box(w, h, d, color) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
+  m.castShadow = m.receiveShadow = true; return m;
+}
+function cyl(r, h, color) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 32), mat(color));
+  m.castShadow = m.receiveShadow = true; return m;
+}
+
+// base（固定）
+const baseGroup = new THREE.Group();
+scene.add(baseGroup);
+const baseMesh = cyl(P.base_r, P.base_h, C.base);
+baseMesh.position.y = P.base_h / 2;
+baseGroup.add(baseMesh);
+
+// J1 base_yaw (URDF Z 轴 -> Three Y 轴)
+const gBaseYaw = new THREE.Group();
+gBaseYaw.position.y = P.base_h;
+baseGroup.add(gBaseYaw);
+const yawMesh = cyl(P.yaw_r, P.yaw_h, C.joint);
+yawMesh.position.y = P.yaw_h / 2;
+gBaseYaw.add(yawMesh);
+
+// J2 shoulder_pitch (URDF Y 轴 -> Three X 轴)
+const gShoulder = new THREE.Group();
+gShoulder.position.y = P.yaw_h;
+gBaseYaw.add(gShoulder);
+const upperMesh = box(0.05, P.upper, 0.05, C.link);
+upperMesh.position.y = P.upper / 2;
+gShoulder.add(upperMesh);
+
+// J3 elbow_pitch
+const gElbow = new THREE.Group();
+gElbow.position.y = P.upper;
+gShoulder.add(gElbow);
+const foreMesh = box(0.045, P.fore, 0.045, C.link);
+foreMesh.position.y = P.fore / 2;
+gElbow.add(foreMesh);
+
+// J4 wrist_pitch
+const gWrist = new THREE.Group();
+gWrist.position.y = P.fore;
+gElbow.add(gWrist);
+const wristMesh = box(0.04, P.wrist, 0.04, C.joint);
+wristMesh.position.y = P.wrist / 2;
+gWrist.add(wristMesh);
+
+// J5 wrist_roll (continuous, URDF Z -> Three Y)
+const gRoll = new THREE.Group();
+gRoll.position.y = P.wrist;
+gWrist.add(gRoll);
+const rollMesh = cyl(P.roll_r, P.roll_h, C.joint);
+rollMesh.position.y = P.roll_h / 2;
+gRoll.add(rollMesh);
+
+// gripper base（固定）
+const gGripBase = new THREE.Group();
+gGripBase.position.y = P.roll_h;
+gRoll.add(gGripBase);
+const gripBaseMesh = box(P.grip_w, P.grip_h, P.grip_d, C.grip);
+gripBaseMesh.position.y = P.grip_h / 2;
+gGripBase.add(gripBaseMesh);
+
+// tool0 标记（小红点）
+const tool0 = new THREE.Mesh(
+  new THREE.SphereGeometry(0.01, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0xff4444 })
+);
+tool0.position.y = P.grip_h + 0.05;
+gGripBase.add(tool0);
+
+// finger left (S1 驱动关节，保留 group 用于 slider 角度映射；外观用真实 STL 替换)
+const gFingerL = new THREE.Group();
+gFingerL.position.z = 0.02;
+gGripBase.add(gFingerL);
+
+// finger right (mimic)
+const gFingerR = new THREE.Group();
+gFingerR.position.z = -0.02;
+gGripBase.add(gFingerR);
+
+// ====== 真实夹爪 STL（从 base64 数据加载，绕开 file:// CORS） ======
+// STEP bbox: x=59.5 y=22 z=108.5, 根部在 z=1.5 面, 爪尖在 z=-107
+// 旋转: STEP +Z -> Three.js -Y (夹爪向下), 即 rotation.x = PI/2
+function b64ToArrayBuffer(b64) {
+  const bin = atob(b64);
+  const len = bin.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+try {
+  const stlData = b64ToArrayBuffer(window.GRIPPER_STL_B64);
+  const geometry = new STLLoader().parse(stlData);
+  geometry.computeVertexNormals();
+  const gripperMesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+    color: 0x33a68c, roughness: 0.5, metalness: 0.3
+  }));
+  gripperMesh.scale.setScalar(0.001);
+  gripperMesh.rotation.x = Math.PI / 2;        // STEP +Z -> -Y (安装面在下), 手指尖朝 +Y
+  gripperMesh.position.set(-0.02975, 0.0415, -0.001);
+  gripperMesh.castShadow = gripperMesh.receiveShadow = true;
+  gGripBase.add(gripperMesh);
+} catch (err) {
+  console.warn('Gripper STL failed, fallback to box fingers', err);
+  const fL = box(P.finger_w, P.finger_l, P.finger_d, C.grip);
+  fL.position.y = P.finger_l / 2; gFingerL.add(fL);
+  const fR = box(P.finger_w, P.finger_l, P.finger_d, C.grip);
+  fR.position.y = P.finger_l / 2; gFingerR.add(fR);
+}
+
+// ====== 关节 -> Three Group 映射 ======
+const jointGroups = {
+  base_yaw: gBaseYaw,
+  shoulder_pitch: gShoulder,
+  elbow_pitch: gElbow,
+  wrist_pitch: gWrist,
+  wrist_roll: gRoll,
+  finger_left: gFingerL,
+};
+
+function applyJoint(id, rad) {
+  const g = jointGroups[id];
+  const j = JOINTS.find(x => x.id === id);
+  if (j.axis === 'y') g.rotation.y = rad;
+  else if (j.axis === 'x') g.rotation.x = rad;
+  // mimic: finger_right = -finger_left
+  gFingerR.rotation.x = -rad;
+}
+
+// ====== 控制面板 ======
+const panel = document.getElementById('joints');
+JOINTS.forEach(j => {
+  const row = document.createElement('div');
+  row.className = 'j-row' + (j.continuous ? ' continuous' : '');
+  row.innerHTML = `
+    <label><span class="name">${j.name}</span><span class="val" data-val="${j.id}">0.0°</span></label>
+    <input type="range" min="${(j.lo*DEG).toFixed(1)}" max="${(j.hi*DEG).toFixed(1)}" step="0.5" value="0" data-j="${j.id}">
+    <div class="meta">限位 ${(j.lo*DEG).toFixed(0)}° ~ ${(j.hi*DEG).toFixed(0)}°${j.continuous?' · 速度舵机(continuous)':''}</div>
+  `;
+  panel.appendChild(row);
+});
+// mimic 行（只读显示）
+const mimicRow = document.createElement('div');
+mimicRow.className = 'j-row mimic';
+mimicRow.innerHTML = `<label><span class="name">finger_right (mimic 左指 ×-1)</span><span class="val" data-val="finger_right">0.0°</span></label>`;
+panel.appendChild(mimicRow);
+
+document.querySelectorAll('input[type=range]').forEach(inp => {
+  inp.addEventListener('input', e => {
+    const id = e.target.dataset.j;
+    const deg = parseFloat(e.target.value);
+    applyJoint(id, deg / DEG);
+    document.querySelector(`[data-val="${id}"]`).textContent = deg.toFixed(1) + '°';
+    const fr = -deg;
+    document.querySelector('[data-val="finger_right"]').textContent = fr.toFixed(1) + '°';
+  });
+});
+
+document.getElementById('reset').onclick = () => {
+  document.querySelectorAll('input[type=range]').forEach(inp => {
+    inp.value = 0;
+    const id = inp.dataset.j;
+    applyJoint(id, 0);
+    document.querySelector(`[data-val="${id}"]`).textContent = '0.0°';
+  });
+  document.querySelector('[data-val="finger_right"]').textContent = '0.0°';
+};
+
+// ====== 渲染循环 ======
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
