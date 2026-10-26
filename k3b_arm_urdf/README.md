@@ -1,30 +1,20 @@
-# K3B 六轴机械臂 URDF
+# K3B 机械臂 URDF
 
-依据淘宝在售「6 自由度舵机机械臂 DIY 套件」实物结构图建模。
+依据实测舵机参数 + 商家提供的夹爪 STL 模型建模。
 
-## 关节结构（自上而下）
+## 舵机 ↔ 关节映射
 
-| 关节名 | 类型 | 轴 | 作用 | 默认限位 |
+| URDF 关节 | 舵机 | 类型 | 脉宽范围(μs) | 限位 |
 |---|---|---|---|---|
-| base_yaw | revolute | Z | 底座偏航 | ±90° |
-| shoulder_pitch | revolute | Y | 肩俯仰 | ±90° |
-| elbow_pitch | revolute | Y | 肘俯仰 | ±90° |
-| wrist_pitch | revolute | Y | 腕俯仰 | ±90° |
-| wrist_roll | revolute | Z | 腕滚转 | ±90° |
-| finger_left / finger_right | revolute | Y | 两指夹爪 | 0–34° |
+| `base_yaw` | S2 | 180° 位置 | 500–2500 | ±90° |
+| `shoulder_pitch` | S3 | 270° 位置 | 500–2000 | ±101° |
+| `elbow_pitch` | S4 | 270° 位置 | 500–2500 | ±135° |
+| `wrist_pitch` | S5 | 270° 位置 | 600–2500 | ±128° |
+| `wrist_roll` | 360° 速度舵机 | continuous | — | 无限位 |
+| `finger_left_joint` | S1 | 180° 位置 | 850–1500 | 0 ~ 58.5° |
+| `finger_right_joint` | — | mimic S1 | — | 自动跟随 |
 
-> 执行器为 **DS3218MG 标准 PWM 舵机**（500–2500μs、中点 1500μs、默认 180°）。
-> 关节量程按舵机 ±90° 设定，实际机械限位以实测为准（舵机如为 270° 版可放宽）。
-
-## DS3218MG PWM 控制（下位机 STM32F407）
-
-- 控制方式：**PWM**（非串行总线）。STM32 用定时器输出 6 路 PWM，周期 20ms（50Hz）。
-- 角度→脉宽映射（线性）：`pulse(μs) = 1500 + θ(°) / 180 × 2000`（0.5ms→0°、1.5ms→90°、2.5ms→180°）。
-- STM32 接收上位机 ROS 下发的关节目标角(rad)，换算成每路脉宽并输出；`/joint_states` 回显**命令值**（该舵机无位置反馈，属开环）。
-- 舵机参数：工作电压 5–6.8V，堵转扭矩 28kg·cm@6.8V，堵转电流 2.9A@6.8V。
-- **供电**：6 只舵机峰值电流可能接近 17A，需独立 **6.8V 大电流电源（建议 ≥15A 或按裕量）**，与逻辑/上位机电源隔离、共地。
-
-末端工具坐标系：`tool0`（抓取参考点）。
+> 末端工具坐标系：`tool0`。
 
 ## 文件
 
@@ -32,29 +22,39 @@
 - `k3b_arm.urdf.xacro` —— 参数化源文件（改参数后重新展开）
 - `README.md` —— 本说明
 
-## 使用（ROS2 Humble / MoveIt2）
+## 关键设计说明
+
+### wrist_roll 是 continuous joint
+
+该关节由 360° 连续旋转速度舵机驱动，无位置反馈。URDF 中 `type="continuous"`，只有 effort/velocity 没有 lower/upper。**MoveIt 规划组不要包含此关节**，它只在实机/仿真里做转速控制。
+
+### 夹爪是单舵机 + mimic
+
+S1 一个舵机通过连杆驱动两指同步开合。`finger_left_joint` 是驱动关节，`finger_right_joint` 通过 `<mimic multiplier="-1"/>` 对称跟随。
+
+### 角度换算
+
+```
+180° 舵机: angle_deg = (pulse_us - 500) × 180 / 2000
+270° 舵机: angle_deg = (pulse_us - 500) × 270 / 2000
+```
+
+当前 xacro 里关节限位按"脉宽中点 = 机械臂直立位"对称设置，实物标定后微调。
+
+## 使用
 
 ```bash
-# 预览（RViz）
-rviz2 -d <your_moveit_config>/launch/...   # 或直接 urdf 模型
+# RViz 预览
 ros2 run robot_state_publisher robot_state_publisher --ros-args -p robot_description:="$(cat k3b_arm.urdf)"
 
-# 用 xacro 重新展开
+# xacro 重新展开
 xacro k3b_arm.urdf.xacro > k3b_arm.urdf
 ```
 
-进 MoveIt 前，用 **MoveIt Setup Assistant** 生成规划配置：
-```bash
-ros2 run moveit_setup_assistant moveit_setup_assistant
-```
-导入 `k3b_arm.urdf`，规划组 `arm`（5 关节）+ `gripper`（2 指），即可做逆解/规划/抓取模拟。
+## ⚠️ 实机前必须校准
 
-## ⚠️ 实机前必须校准（图片无法精确给出）
-
-1. **杆长**：实测各关节轴到轴的直线距离，替换 `upper_arm_len`(0.43)、`forearm_len`(0.313)、`wrist_len`(0.09)。
-2. **关节限位**：实测每个舵机的机械限位角，避免规划到卡死位置。
-3. **轴朝向**：本模型按常见正装结构取 Z/Y 轴；若你的套件某关节安装方向不同，改对应 `<axis>`。
-4. **惯量/质量**：当前为占位估算值，仅够规划仿真；做 Gazebo 物理抓取前填真实质量与惯量。
-5. **夹爪开合**：实测夹爪张开角度与工件尺寸，调整 `lim_finger` 和指长 `0.09`。
-
-> 模型为按图估算的**原理性结构**，用于仿真演示；驱动真实机械臂前务必完成上述实测校准。
+1. **杆长实测**：替换 `upper_arm_len`(0.43)、`forearm_len`(0.313)、`wrist_len`(0.09)
+2. **直立位偏置**：确认每个舵机中点脉宽对应臂直立姿态
+3. **轴朝向**：若某关节安装方向不同，改对应 `<axis>`
+4. **惯量/质量**：当前为占位值，Gazebo 物理仿真前填真实值
+5. **夹爪开合**：确认 `lim_finger`(58.5°) 与实际夹爪行程一致

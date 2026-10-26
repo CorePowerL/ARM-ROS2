@@ -100,8 +100,14 @@ ros2 run moveit_setup_assistant moveit_setup_assistant   # 导入 k3b_arm.urdf
 
 ---
 
-## 六、待确认项（进入阶段 5 前需要）
+## 六、已确认项
 
-- [ ] 主控板卡 = KICKPI K3B（RK3562）✅ 已确认
-- [ ] STM32 下位机与板子通信方式（串口 UART / CAN / 现成固件）
-- [ ] 舵机类型（普通 PWM 舵机 / 带反馈位置闭环舵机）——决定控制精度与是否要位置闭环
+- [x] 主控板卡 = KICKPI K3B（RK3562）
+- [x] 舵机类型 = WHEELTEC S20F（180°×2 + 270°×3）+ 360° 速度舵机 ×1
+- [x] 舵机编号↔关节映射 = S1夹爪 / S2 base_yaw / S3 shoulder / S4 elbow / S5 wrist_pitch / 速度舵机 wrist_roll
+- [x] 通信方式 = UART 串口（STM32 PWM 输出，ROS 侧发 rad 目标角）
+
+## 七、待确认项（进入阶段 5 前需要）
+
+- [ ] STM32 与 K3B 的串口接线（TX/RX/共地，用哪组 UART）
+- [ ] 直立位实际脉宽偏置（实机上电后标定）

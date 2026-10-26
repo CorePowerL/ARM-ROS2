@@ -1,42 +1,57 @@
 <?xml version="1.0"?>
 <!--
-  K3B 六轴机械臂 URDF (xacro 参数化版)
-  依据：淘宝在售 6 自由度舵机机械臂 DIY 套件实物图
-  结构：base_yaw(J1) -> shoulder_pitch(J2) -> elbow_pitch(J3)
-        -> wrist_pitch(J4) -> wrist_roll(J5) -> 两指夹爪(J6)
-  执行器：DS3218MG 标准 PWM 舵机（500-2500us，中点1500us，默认180°）
-  说明：杆长为按图片标注的估算值，实机前必须按实物实测校准：
-        1) 实测各关节轴到轴的直线距离（杆长）
-        2) 实测每个舵机的关节角限位（机械限位，避免卡死）
-        3) 确认各关节旋转轴朝向（本模型按常见正装结构取 Y/Z 轴）
+  K3B 机械臂 URDF (xacro 参数化版) — 按实测舵机参数修订
+  硬件：WHEELTEC S20F 数字舵机 ×5 + 360° 速度舵机 ×1
+  结构链：
+    base_yaw(J1,S2,180deg) -> shoulder_pitch(J2,S3,270deg)
+    -> elbow_pitch(J3,S4,270deg) -> wrist_pitch(J4,S5,270deg)
+    -> wrist_roll(360deg速度舵机, continuous) -> gripper
+    -> finger(S1,180deg, 夹爪开合)
+  舵机->关节映射（实测 2026-10-25）：
+    S1 850~1500us  上电850us  = 夹爪开合(OPEN=850/CLOSE=1500)
+    S2 500~2500us  上电1500us = base_yaw
+    S3 500~2000us  上电2000us = shoulder_pitch
+    S4 500~2500us  上电500us  = elbow_pitch
+    S5 600~2500us  上电1500us = wrist_pitch
+    360度速度舵机             = wrist_roll（控速度，不控位置）
+  角度换算：
+    180deg 舵机: angle_deg = (pulse_us - 500) * 180 / 2000
+    270deg 舵机: angle_deg = (pulse_us - 500) * 270 / 2000
+  零点策略：joint=0 对应机械臂直立位（臂伸直向上），
+            限位围绕直立位对称设置；实物校准后微调下方 limit_* 参数。
   用法：xacro k3b_arm.urdf.xacro > k3b_arm.urdf
 -->
 <robot name="k3b_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- ============ 参数（按图估算，需实测校准） ============ -->
+  <!-- ============ 几何参数（杆长需实测替换） ============ -->
   <xacro:property name="pi" value="3.141592653589793"/>
-  <xacro:property name="base_height"    value="0.14"/>   <!-- 底座高度(估算) -->
-  <xacro:property name="base_radius"    value="0.05"/>   <!-- 底座半径(估算) -->
-  <xacro:property name="upper_arm_len"  value="0.43"/>   <!-- 大臂长度，图中 43cm -->
-  <xacro:property name="forearm_len"    value="0.313"/>  <!-- 前臂长度，图中 31.3cm -->
-  <xacro:property name="wrist_len"      value="0.09"/>   <!-- 腕部长度，图中 9cm -->
-  <xacro:property name="gripper_len"    value="0.10"/>   <!-- 夹爪长度(估算) -->
-  <xacro:property name="joint_speed"    value="1.5"/>    <!-- 舵机额定速度 rad/s(估算) -->
+  <xacro:property name="base_height"    value="0.14"/>
+  <xacro:property name="base_radius"    value="0.05"/>
+  <xacro:property name="upper_arm_len"  value="0.43"/>   <!-- 实测替换 -->
+  <xacro:property name="forearm_len"    value="0.313"/>   <!-- 实测替换 -->
+  <xacro:property name="wrist_len"      value="0.09"/>    <!-- 实测替换 -->
+  <xacro:property name="gripper_len"    value="0.10"/>
 
-  <!-- 默认关节限位：按 DS3218MG 舵机默认 180° 量程设为 ±90°；
-       实际机械限位(支架阻挡)以实测为准，若舵机为 270° 版可放宽 -->
-  <xacro:property name="lim_base"   value="1.5708"/>  <!-- ±90° -->
-  <xacro:property name="lim_should" value="1.5708"/>  <!-- ±90° -->
-  <xacro:property name="lim_elbow"  value="1.5708"/>  <!-- ±90° -->
-  <xacro:property name="lim_wpitch" value="1.5708"/>  <!-- ±90° -->
-  <xacro:property name="lim_wroll"  value="1.5708"/>  <!-- ±90° -->
-  <xacro:property name="lim_finger" value="0.6"/>
+  <!-- ============ 关节限位（rad，按实测脉宽范围+中点=直立位换算） ============
+       S2 base_yaw    180deg, 500~2500us, 中点1500us=直立 -> ±90deg  -->
+  <xacro:property name="lim_base"      value="1.5708"/>   <!-- ±90deg -->
+  <!-- S3 shoulder_pitch 270deg, 500~2000us, 中点1250us=直立, 行程202.5deg -> ±101deg -->
+  <xacro:property name="lim_should"    value="1.763"/>    <!-- ±101deg，保守取整 -->
+  <!-- S4 elbow_pitch  270deg, 500~2500us, 中点1500us=直立, 行程270deg -> ±135deg -->
+  <xacro:property name="lim_elbow"      value="2.356"/>    <!-- ±135deg -->
+  <!-- S5 wrist_pitch  270deg, 600~2500us, 中点1550us=直立, 行程256.5deg -> ±128deg -->
+  <xacro:property name="lim_wpitch"     value="2.234"/>    <!-- ±128deg -->
+  <!-- S1 finger       180deg, 850~1500us, 行程58.5deg, 0=闭合/正=张开 -->
+  <xacro:property name="lim_finger"     value="1.022"/>    <!-- 58.5deg -->
+
+  <xacro:property name="joint_speed"   value="1.5"/>      <!-- rad/s 估算 -->
+  <xacro:property name="roll_speed"     value="2.0"/>      <!-- 360deg速度舵机 rad/s -->
 
   <!-- ============ 颜色 ============ -->
-  <material name="base_mat"> <color rgba="0.15 0.18 0.24 1.0"/> </material>
-  <material name="link_mat"> <color rgba="0.35 0.42 0.52 1.0"/> </material>
-  <material name="joint_mat"><color rgba="0.80 0.52 0.20 1.0"/> </material>
-  <material name="grip_mat"> <color rgba="0.20 0.65 0.55 1.0"/> </material>
+  <material name="base_mat">  <color rgba="0.15 0.18 0.24 1.0"/> </material>
+  <material name="link_mat">  <color rgba="0.35 0.42 0.52 1.0"/> </material>
+  <material name="joint_mat"> <color rgba="0.80 0.52 0.20 1.0"/> </material>
+  <material name="grip_mat">  <color rgba="0.20 0.65 0.55 1.0"/> </material>
 
   <!-- ============ 底座 ============ -->
   <link name="base_link">
@@ -55,7 +70,7 @@
     </inertial>
   </link>
 
-  <!-- ============ J1 底座偏航 ============ -->
+  <!-- ============ J1 base_yaw (S2, 180deg) ============ -->
   <link name="base_yaw_link">
     <visual>
       <geometry><cylinder radius="0.04" length="0.05"/></geometry>
@@ -80,7 +95,7 @@
     <dynamics damping="0.2" friction="0.1"/>
   </joint>
 
-  <!-- ============ J2 肩俯仰 ============ -->
+  <!-- ============ J2 shoulder_pitch (S3, 270deg) ============ -->
   <link name="upper_arm_link">
     <visual>
       <geometry><box size="0.05 0.05 ${upper_arm_len}"/></geometry>
@@ -105,7 +120,7 @@
     <dynamics damping="0.2" friction="0.1"/>
   </joint>
 
-  <!-- ============ J3 肘俯仰 ============ -->
+  <!-- ============ J3 elbow_pitch (S4, 270deg) ============ -->
   <link name="forearm_link">
     <visual>
       <geometry><box size="0.045 0.045 ${forearm_len}"/></geometry>
@@ -130,7 +145,7 @@
     <dynamics damping="0.2" friction="0.1"/>
   </joint>
 
-  <!-- ============ J4 腕俯仰 ============ -->
+  <!-- ============ J4 wrist_pitch (S5, 270deg) ============ -->
   <link name="wrist_link">
     <visual>
       <geometry><box size="0.04 0.04 ${wrist_len}"/></geometry>
@@ -155,7 +170,10 @@
     <dynamics damping="0.15" friction="0.1"/>
   </joint>
 
-  <!-- ============ J5 腕滚转 ============ -->
+  <!-- ============ J5 wrist_roll (360deg 速度舵机, continuous) ============
+       速度舵机无位置反馈，控转速不控角度；URDF 用 continuous joint 表示。
+       注意：MoveIt 规划组里不要把它当位置关节做逆解，
+       它只在实机/仿真里做连续旋转速度控制。 -->
   <link name="wrist_roll_link">
     <visual>
       <geometry><cylinder radius="0.03" length="0.06"/></geometry>
@@ -171,13 +189,13 @@
       <inertia ixx="0.0003" ixy="0.0" ixz="0.0" iyy="0.0003" iyz="0.0" izz="0.0003"/>
     </inertial>
   </link>
-  <joint name="wrist_roll" type="revolute">
+  <joint name="wrist_roll" type="continuous">
     <parent link="wrist_link"/>
     <child link="wrist_roll_link"/>
     <origin xyz="0 0 ${wrist_len}" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-${lim_wroll}" upper="${lim_wroll}" effort="8.0" velocity="${joint_speed}"/>
-    <dynamics damping="0.15" friction="0.1"/>
+    <limit effort="5.0" velocity="${roll_speed}"/>
+    <dynamics damping="0.1" friction="0.05"/>
   </joint>
 
   <!-- ============ 夹爪底座(固定) ============ -->
@@ -210,7 +228,10 @@
     <origin xyz="0 0 0.05" rpy="0 0 0"/>
   </joint>
 
-  <!-- ============ J6 左指 ============ -->
+  <!-- ============ 夹爪驱动指 (S1, 180deg, 850~1500us) ============
+       单舵机通过连杆驱动两指同步开合。
+       0 = 闭合(CLOSE=1500us)，正 = 张开(OPEN=850us)。
+       右指通过 mimic 跟随左指，方向反向。 -->
   <link name="finger_left_link">
     <visual>
       <geometry><box size="0.02 0.015 0.09"/></geometry>
@@ -234,7 +255,7 @@
     <limit lower="0" upper="${lim_finger}" effort="3.0" velocity="2.0"/>
   </joint>
 
-  <!-- ============ J6 右指 ============ -->
+  <!-- ============ 夹爪从动指（mimic 左指） ============ -->
   <link name="finger_right_link">
     <visual>
       <geometry><box size="0.02 0.015 0.09"/></geometry>
@@ -256,6 +277,7 @@
     <origin xyz="0 -0.02 0" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="0" upper="${lim_finger}" effort="3.0" velocity="2.0"/>
+    <mimic joint="finger_left_joint" multiplier="-1.0" offset="0"/>
   </joint>
 
   <!-- 世界->底座，方便 RViz 固定 -->
