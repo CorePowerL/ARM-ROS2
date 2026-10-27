@@ -36,36 +36,99 @@ http://127.0.0.1:8777/k3b_arm_urdf/preview.html
 `mock_components` 假硬件 —— 位置指令直接当状态回读，规划出来的轨迹能真的走一遍。
 这就是「仿真」，只是它仿的是**运动学**（位置/姿态/限位/自碰撞），不是重力摩擦那一套。
 
-三选一：
+### 先排除一个坑：不是所有 Linux 都能跑 ROS 2 Jazzy
 
-| 方案 | 代价 | 适合 |
-|---|---|---|
-| **WSL2 + Ubuntu 24.04**（推荐） | 装一次 20 分钟 + 装包 15 分钟 | 就在这台 Windows 上跑，Win11 自带 WSLg，RViz 直接弹窗 |
-| 一台 Ubuntu 24.04 物理机 / 双系统 | 另一台机器 | 长期主力开发，要跑 Gazebo 才有必要 |
-| K3B 板子上原生跑 | ARM64 包少、算力紧 | 只做最后实机联调，别拿它当开发机 |
+ROS 2 的**二进制包只对 Ubuntu 发布**。openEuler / CentOS / Debian / 麒麟 系统里
+`apt install ros-jazzy-*` 一定失败 —— 没有这个源，只能源码编译整个桌面栈 + MoveIt，
+build 目录 15 GB 起、MoveIt 再翻一倍，几小时到一整天，虚拟机里根本做不成。
 
-#### 一键装（推荐）
+> 所以 `tools/bootstrap_ros2.sh` 第一步就查发行版，不是 Ubuntu 24.04 直接停下并说明原因，
+> 不会让你等半小时才发现装错系统。
 
-1. 管理员 PowerShell：`wsl --install -d Ubuntu-24.04` → 重启
-2. 开始菜单打开一次 **Ubuntu**，设好 Linux 用户名密码
-3. **双击 `tools/启动仿真.bat`**
+### 三个平台怎么选
 
-第 3 步会调 `tools/bootstrap_wsl_ros2.sh` 把所有事做完：加 ROS apt 源 → 装
-`ros-jazzy-desktop` + `moveit` + `ros2_control` → 建 `~/k3b_ws` 软链本仓库 →
-`colcon build` → 跑一遍配置自检 → 起 RViz。**幂等**，重复双击只会启动不再重装。
-装包那步约 2 GB，第一次要等十几分钟。
+| 平台 | 起法 | RViz 流畅度 | 磁盘 |
+|---|---|---|---|
+| **VMware 新建 Ubuntu 24.04**（推荐） | 下 6 GB ISO + 装 20 分钟 | 原生 OpenGL，最顺 | 独立 60 GB 虚拟盘，不占宿主 |
+| WSL2 + Ubuntu 24.04 | 一条命令，不用下 ISO | WSLg 走 D3D 转译，能用但略慢 | 吃 C 盘 |
+| K3B 板子原生跑 | ARM64 包少、算力紧 | 只适合最后实机联调 | — |
 
-> 脚本会先做环境体检：不是 Ubuntu 24.04 直接拒绝并说明原因（22.04 只有 Humble）；
-> 没检测到 WSLg 会提醒 `wsl --update`。
+你这台机器：Windows 11 24H2、32 GB 内存、D 盘剩 198 GB、已装 VMware Workstation。
+条件完全够，**建议走 A**：图形最稳，虚拟盘独立，以后要装 Gazebo 也有地方。
 
-#### 手动做（不想跑脚本时）
+---
 
-```powershell
-wsl --install -d Ubuntu-24.04      # 管理员 PowerShell，装完重启
-wsl --set-default-version 2
+#### A. VMware 新建 Ubuntu 24.04（推荐）
+
+> 已有的那台 `dr` 是 **openEuler 24.03 LTS SP4**（内核 `6.6.0-...oe2403sp4`），
+> 不是 Ubuntu，所以 ROS 2 Jazzy 装不上 —— 别在它上面折腾，另起一台。
+
+**1) 下 ISO**（国内镜像比官网快很多）
+
+```
+https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/24.04/
 ```
 
-进 Ubuntu 后：
+选 `ubuntu-24.04.x-desktop-amd64.iso`，约 6 GB。（中科大 `mirrors.ustc.edu.cn` 同理。）
+
+**2) 新建虚拟机**：VMware Workstation → 文件 → 新建虚拟机 → **自定义（高级）**
+
+| 步骤 | 选什么 | 为什么 |
+|---|---|---|
+| 安装来源 | **稍后安装操作系统** | 让 VMware「简易安装」插手会跳过分区和用户设置，后面更麻烦 |
+| 客户机操作系统 | Linux → **Ubuntu 64 位** | |
+| 位置 | `D:\ubuntu-arm` | D 盘还有 198 GB，别放 C 盘 |
+| 处理器 | **4** 个 | 编译比 2 核快一倍 |
+| 内存 | **8192 MB** | 宿主 32 GB 给得起；4 GB 跑 RViz 会频繁 swap |
+| 网络 | **NAT** | 能上网即可，和现有 dr 一致 |
+| 磁盘 | **60 GB**，拆分成多个文件 | ROS 2 + MoveIt 约 8 GB，留余量给以后的 Gazebo；20 GB 会紧 |
+
+**3) 挂 ISO 开机**：编辑虚拟机设置 → CD/DVD → 使用 ISO 映像 → 选刚下的 iso → 开机。
+
+> 若启动时花屏或黑屏：开机按住 <kbd>Shift</kbd> 进 GRUB，选 **Ubuntu (safe graphics)**
+> 先装完，装完再正常启动。这是 24.04 新安装器在部分 VMware 版本的已知问题。
+
+**4) 装系统**：分区选「清除整个磁盘并安装」—— 清的是那块 60 GB **虚拟**盘，
+碰不到 Windows。用户名密码记牢。安装时**不用**勾「安装第三方驱动」，
+VMware 的显卡与共享靠 `open-vm-tools-desktop`，脚本会装。
+
+**5) 装完先更新，再拉仓库装环境**
+
+```bash
+sudo apt update && sudo apt full-upgrade -y && sudo apt install -y git
+
+git clone https://github.com/CorePowerL/ARM-ROS2.git ~/ARM-ROS2
+bash ~/ARM-ROS2/tools/bootstrap_ros2.sh --launch
+```
+
+脚本一条龙：查发行版/内存/磁盘/3D → 加 ROS apt 源 → 装
+`ros-jazzy-desktop` + `moveit` + `ros2_control` + `open-vm-tools-desktop` →
+装完清 apt 缓存（磁盘紧时这是关键）→ 建 `~/k3b_ws` 软链仓库 → `colcon build` →
+跑配置自检 → 写 `~/.bashrc` → 起 RViz。**全程幂等**，重复跑只补缺。
+
+装包约 2 GB，第一次十几分钟。
+
+**6) 以后每次开机的固定动作**
+
+```bash
+ros2 launch k3b_arm_moveit_config demo.launch.py
+```
+
+（`source` 已写进 `~/.bashrc`，新终端自动生效。）
+
+---
+
+#### B. WSL2（不想下 6 GB ISO 就走这条）
+
+1. 管理员 PowerShell：`wsl --install -d Ubuntu-24.04` → 重启
+2. 开始菜单打开一次 **Ubuntu**，设好用户名密码
+3. **双击 `tools/启动仿真.bat`** —— 它调 `bootstrap_ros2.sh` 做同样的事
+
+WSLg 的 OpenGL 是 D3D 转译，RViz 能用但复杂网格会掉帧；追求手感还是走 A。
+
+---
+
+#### 手动做（不想跑脚本时的等价命令）
 
 ```bash
 # 1) 加 ROS 2 apt 源（不做这步 apt 里根本没有 ros-jazzy-*）
@@ -98,7 +161,7 @@ Jazzy 的 API。
 软链出去，仓库保持干净：
 
 ```bash
-REPO="/mnt/c/Users/丁锐/WorkBuddy/Worktrees/ARM-ROS2model/main-e47949fe"   # 按你自己机器改
+REPO="$HOME/ARM-ROS2"          # 你 clone 的位置
 mkdir -p ~/k3b_ws/src
 ln -sfn "$REPO/k3b_arm_urdf"            ~/k3b_ws/src/
 ln -sfn "$REPO/k3b_arm_moveit_config"   ~/k3b_ws/src/
@@ -107,11 +170,14 @@ source install/setup.bash
 ros2 launch k3b_arm_moveit_config demo.launch.py
 ```
 
-> `/mnt/c` 上编译慢一些。嫌慢就把两个包 `cp -r` 到 `~/k3b_ws/src`，改完再同步回去 ——
-> 但**别反过来**用 Windows 那边编辑 `~/` 里的文件，WSL 内文件从 Windows 侧写容易乱权限。
+`--symlink-install` 的好处：`install/` 里是指回源码的软链，改 yaml / srdf 后重新
+`colcon build` 是秒级，不用重编。
 
-`--symlink-install` 的好处：之后在 Windows 里（比如用 VSCode）改 yaml / srdf，
-重新 `colcon build` 是秒级，不用重编。
+> **想直接在 Windows 里编辑 VM 里的代码**：VMware → 虚拟机设置 → 选项 → 共享文件夹，
+> 指向仓库目录；VM 里 `sudo vmhgfs-fuse .host:/ /mnt/hgfs`，再把 `REPO` 指到
+> `/mnt/hgfs/...`。注意 hgfs 权限是按挂载参数统一映射的，colcon 偶尔会抱怨；
+> **编译产物仍写在 `~/k3b_ws`，不会弄脏 Windows 侧**。
+> 更省心的做法是在 VM 里改、改完 `git push` 回 Windows —— 仓库本来就在 GitHub 上。
 
 #### 第一眼该看什么
 

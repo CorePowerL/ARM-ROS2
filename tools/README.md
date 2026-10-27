@@ -87,25 +87,34 @@ python tools/emit_gripper.py       # 把结果写进 k3b_arm.urdf.xacro（幂等
 > 定位，重复运行结果一致。它输出的是**数值字面量**，不是 `${...}` 表达式 ——
 > `${-${gear_u}}` 这种嵌套写法 xacro 不会求值，会原样留在 URDF 里。
 
-## 一键装仿真环境（WSL2）
+## 一键装仿真环境
+
+适用 **Ubuntu 24.04** 的任意运行方式：VMware / VirtualBox 虚拟机、WSL2、物理机。
+（为什么必须是 Ubuntu：ROS 2 的二进制包只对 Ubuntu 发布，openEuler / CentOS / Debian
+只能源码编译整个桌面栈，几十 GB 磁盘加一整天，虚拟机里做不成。）
 
 ```bash
-# 在 WSL 的 Ubuntu 24.04 里，仓库根目录执行
-bash tools/bootstrap_wsl_ros2.sh            # 只装环境
-bash tools/bootstrap_wsl_ros2.sh --launch    # 装完直接起 RViz
-bash tools/bootstrap_wsl_ros2.sh --check     # 装完只跑配置自检
+# 在 Ubuntu 24.04 里，仓库根目录执行
+bash tools/bootstrap_ros2.sh             # 只装环境
+bash tools/bootstrap_ros2.sh --launch    # 装完直接起 RViz
+bash tools/bootstrap_ros2.sh --check     # 装完只跑配置自检
 ```
 
-Windows 侧双击 `tools/启动仿真.bat` 等价于「进 WSL + `--launch`」，会自己定位仓库路径
-（`%~dp0..`），不用手改。发行版没装的话它会提示装 `Ubuntu-24.04`。
+不在仓库里也能跑 —— 脚本会自己找（脚本上级 → `~/ARM-ROS2` → `$PWD`），
+都找不到就 `git clone` 一份到 `~/ARM-ROS2`。
+
+Windows 侧双击 `tools/启动仿真.bat` 只对 **WSL2** 通道有效（等价于「进 WSL + `--launch`」）。
+用 VMware 的话在虚拟机终端里直接跑上面的命令，bat 会提示这一点。
 
 做的事，按顺序：
 
 | 步 | 内容 | 幂等判据 |
 |---|---|---|
-| 体检 | Ubuntu 必须是 noble（24.04）；有 `/mnt/wslg` 才提示 RViz 能弹窗 | — |
+| 体检 | ① 发行版必须是 Ubuntu 24.04，否则拒绝并说明原因；② 平台与图形通路（WSLg / VMware / 物理机）；③ 内存 <3.5 GB 警告、<7 GB 提示升到 8 GB；④ 根分区 <6 GB 拒绝、<12 GB 警告；⑤ CPU 核数 | — |
+| 3D 自检 | `glxinfo -B` 取 renderer，撞到 `llvmpipe` 就是软件渲染，提示去开 VMware 的「加速 3D 图形」 | — |
 | 加源 | `packages.ros.org` 的 keyring + `ros2.list` | 文件已存在就跳过 |
-| 装包 | `ros-jazzy-desktop` + `moveit` + `ros2_control` + `colcon` + `numpy/yaml` | `dpkg -s` 逐个查，只装缺的 |
+| 装包 | `ros-jazzy-desktop` + `moveit` + `ros2_control` + `colcon` + `numpy/yaml` + `mesa-utils`；VMware 上再补 `open-vm-tools-desktop` | `dpkg -s` 逐个查，只装缺的 |
+| 清缓存 | `apt-get clean` | 装了包才执行 |
 | rosdep | `init` + `update` | 失败只 warn（本包无外部依赖） |
 | 工作空间 | `~/k3b_ws/src` 里软链两个包 | `ln -sfn` 天然幂等 |
 | 编译 | `colcon build --symlink-install` | — |
@@ -114,7 +123,11 @@ Windows 侧双击 `tools/启动仿真.bat` 等价于「进 WSL + `--launch`」�
 
 > 脚本**不在仓库根目录 build**：仓库里两个包和 `viewer3d/`、`assets/` 是平级的，
 > 在根目录 `colcon build` 会把 build/install/log 落进仓库，还会把无关目录一起扫。
-> 工作空间目录可以用 `K3B_WS=~/my_ws` 改。
+> 工作空间目录可以用 `K3B_WS=~/my_ws` 改，仓库位置可以用 `K3B_REPO_URL` 换。
+
+> 仓库落在 VMware 共享文件夹（`/mnt/hgfs/...`）或 Windows 挂载盘上时，脚本会额外提醒：
+> 前者权限是按挂载参数统一映射的、colcon 偶尔抱怨，后者编译明显变慢。
+> 两种情况编译产物都写在 `~/k3b_ws`，不会弄脏仓库。
 
 ## 校验 MoveIt 配置
 

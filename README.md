@@ -130,9 +130,15 @@ xacro k3b_arm_urdf/k3b_arm.urdf.xacro > k3b_arm_urdf/k3b_arm.urdf
 
 配置已经写好在 [`k3b_arm_moveit_config/`](k3b_arm_moveit_config/)，不用再跑 Setup Assistant。
 
-**Windows 上最快的路**：装 WSL2 的 Ubuntu 24.04，然后双击 `tools/启动仿真.bat` ——
-一条龙装 ROS + MoveIt、建工作空间、编译、起 RViz。详见
-[`k3b_arm_moveit_config/README.md`](k3b_arm_moveit_config/README.md) 第零节。
+**前提：必须是 Ubuntu 24.04。** ROS 2 的二进制包只对 Ubuntu 发布 —— openEuler /
+CentOS / Debian / 麒麟 里 `apt install ros-jazzy-*` 一定失败，只能源码编译整个桌面栈
+（15 GB 起、一整天），虚拟机里做不成。
+
+两条路（详见 [`k3b_arm_moveit_config/README.md`](k3b_arm_moveit_config/README.md) 第零节）：
+
+- **VMware 新建 Ubuntu 24.04**（推荐，图形最稳）：下 ISO → 8 GB 内存 / 4 核 / 60 GB 盘 →
+  装完在虚拟机里 `git clone` 后跑 `tools/bootstrap_ros2.sh --launch`
+- **WSL2**（不用下 ISO）：`wsl --install -d Ubuntu-24.04` → 双击 `tools/启动仿真.bat`
 
 手动做（已在 Linux 上时）：
 
