@@ -1,0 +1,55 @@
+# controller_manager 参数（demo / 仿真用）
+# ---------------------------------------------------------------------------
+# 这张表是给 ros2_control_node 看的，和 MoveIt 那份 moveit_controllers.yaml
+# 是两套东西，别看混了：
+#
+#   moveit_controllers.yaml   告诉 MoveIt「有哪些 action server 可以投递轨迹」
+#   ros2_control_demo.yaml    告诉 controller_manager「要加载哪些 controller、怎么加载」
+#
+# 两边的 controller 名（k3b_arm_controller / k3b_gripper_controller）和关节
+# 列表必须一致，否则 MoveIt 会找不到 action server，点 Execute 没反应。
+#
+# update_rate 给 100Hz：mock 硬件下只是个积分步长；接真机后按 STM32
+# 的串口回传频率调（一般 50~100Hz）。
+# ---------------------------------------------------------------------------
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    k3b_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    k3b_gripper_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+k3b_arm_controller:
+  ros__parameters:
+    joints:
+      - base_yaw
+      - shoulder_pitch
+      - elbow_pitch
+      - wrist_pitch
+      - wrist_roll
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    # 轨迹结束时允许还有残余速度：舵机是位置闭环，末点速度不为 0 更自然，
+    # 强行要求 0 会让最后一段被拉长、看起来一顿一顿的
+    allow_nonzero_velocity_at_trajectory_end: true
+
+k3b_gripper_controller:
+  ros__parameters:
+    joints:
+      - finger_left_gear_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    allow_nonzero_velocity_at_trajectory_end: true

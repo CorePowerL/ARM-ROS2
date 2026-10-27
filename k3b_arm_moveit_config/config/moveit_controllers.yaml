@@ -1,0 +1,42 @@
+# MoveIt → 控制器的桥
+# ---------------------------------------------------------------------------
+# MoveIt 规划出轨迹后，通过 FollowJointTrajectory action 丢给控制器。
+# 这里两套 controller，各管一个规划组，关节列表必须与组内**主动**关节完全一致：
+#
+#   k3b_arm_controller      base_yaw, shoulder_pitch, elbow_pitch,
+#                           wrist_pitch, wrist_roll           → 5 个
+#   k3b_gripper_controller  finger_left_gear_joint            → 1 个
+#
+# 夹爪那 5 个四连杆从动件（mimic）一个都不能写进来：它们不由控制器驱动，
+# 由 robot_state_publisher 按 URDF 的 <mimic> 自动推算 TF。写进来会报
+# "Trajectory joints don't match controller joints"。
+#
+# 为什么不合一个 controller：JointTrajectoryController 默认
+# allow_partial_joints_goal=false，轨迹里的关节集合必须与 controller 完全匹配。
+# arm 的轨迹不含夹爪关节，混在一起会直接被拒。
+# ---------------------------------------------------------------------------
+
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+moveit_simple_controller_manager:
+  controller_names:
+    - k3b_arm_controller
+    - k3b_gripper_controller
+
+  k3b_arm_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints:
+      - base_yaw
+      - shoulder_pitch
+      - elbow_pitch
+      - wrist_pitch
+      - wrist_roll
+
+  k3b_gripper_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: false
+    joints:
+      - finger_left_gear_joint

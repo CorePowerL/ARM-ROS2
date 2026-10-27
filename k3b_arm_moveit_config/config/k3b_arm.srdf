@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  K3B 六轴机械臂 · MoveIt 语义描述（SRDF）
+  =============================================================
+  ⚠ 这个文件必须与 k3b_arm_urdf/k3b_arm.urdf.xacro 保持同步。
+    改完跑 `python tools/check_moveit_config.py` 校验，它会检查
+    所有 link / joint 名存在、命名位姿落在限位内、mimic 关节没混进组。
+
+  自由度
+  ======
+  「六轴」指的是**六个舵机**，不是六个臂轴：
+
+      S2 base_yaw(Z) ─ S3 shoulder(Y) ─ S4 elbow(Y) ─ S5 wrist_pitch(Y)
+      ─ DS3120 wrist_roll(Z)                                    → 臂 5 DoF
+      S1 finger_left_gear_joint                                 → 夹爪 1 DoF
+
+  arm 组 = 5 DoF，gripper 组 = 1 DoF，六个主动关节正好对上六个舵机。
+  夹爪另有 5 个四连杆从动件（mimic），由 URDF 自动跟随，不占自由度。
+
+  规划组
+  ======
+  arm        chain base_link → tool0
+  gripper    finger_left_gear_joint（mimic 关节写进 <group> 会被 MoveIt 拒绝）
+
+  5 DoF 意味着什么（很重要，直接决定你怎么设目标）
+  ================================================
+  三个 pitch 关节全在 base_yaw 转出来的那个竖直平面里，所以工具轴**永远困在
+  这个平面内** —— 它指向哪个方位角，base_yaw 就得转到哪个方位角。
+  因此 6 维位姿目标里有一维是这个构型给不出来的，任意 Pose 大约一半无解。
+  实用上没问题（顶抓、正前方侧抓都能做），设目标时遵守：
+    · 先让 base_yaw 对准目标方位角
+    · 工具轴不要要求「撇开」臂所在平面
+
+  为什么 arm 组包含 wrist_roll
+  ============================
+  wrist_roll 是 DS3120 速度舵机、无位置反馈，实机上不能直接做位置控制。
+  但它仍在组里，否则只剩 4 DoF，连顶抓都勉强。
+  实机阶段三种处理方式（按推荐顺序）：
+    1. 下位机把「目标角 - 当前角」当误差，做速度闭环 —— 组保持 5 DoF 不变
+    2. 把它移出 arm 组（`<chain>` 换成 `<joint>` 列表，见 README），
+       只做 position-only 目标
+    3. 规划前把它锁死在当前值附近（joint constraint），当它不存在
+
+  没有 virtual_joint
+  ==================
+  URDF 里已有真实的 world link + world_joint(fixed)，底座是接地的，
+  不需要（也不能）再加 virtual joint。
+  =============================================================
+-->
+<robot name="k3b_arm">
+
+  <!-- ==================== 规划组 ==================== -->
+
+  <!-- 机械臂：5 个转动关节，末端取 tool0（两爪尖正中间） -->
+  <group name="arm">
+    <chain base_link="base_link" tip_link="tool0"/>
+  </group>
+
+  <!-- 夹爪：只放主动关节。四连杆的 5 个从动件是 mimic，不能列进来 -->
+  <group name="gripper">
+    <joint name="finger_left_gear_joint"/>
+  </group>
+
+  <!-- ==================== 命名位姿 ====================
+
+       数值都经过正运动学校核（tools/check_moveit_config.py 会重算并打印末端位置）：
+
+         home     全 0，直臂垂直向上，tool0 = (0, 0, 545)mm   收纳态
+         forward  shoulder 90°，臂水平前伸，tool0 = (400, 0, 145)mm，爪轴 +X
+         ready    shoulder 60° / elbow −30° / wrist 60°，
+                  tool0 = (313, 0, 323)mm，爪轴水平朝 +X，适合抓取
+
+       note: wrist_pitch 的补偿量 = −(shoulder + elbow)，这样工具轴才水平。
+  -->
+  <group_state name="home" group="arm">
+    <joint name="base_yaw" value="0"/>
+    <joint name="shoulder_pitch" value="0"/>
+    <joint name="elbow_pitch" value="0"/>
+    <joint name="wrist_pitch" value="0"/>
+    <joint name="wrist_roll" value="0"/>
+  </group_state>
+
+  <group_state name="forward" group="arm">
+    <joint name="base_yaw" value="0"/>
+    <joint name="shoulder_pitch" value="1.5708"/>
+    <joint name="elbow_pitch" value="0"/>
+    <joint name="wrist_pitch" value="0"/>
+    <joint name="wrist_roll" value="0"/>
+  </group_state>
+
+  <group_state name="ready" group="arm">
+    <joint name="base_yaw" value="0"/>
+    <joint name="shoulder_pitch" value="1.0472"/>
+    <joint name="elbow_pitch" value="-0.5236"/>
+    <joint name="wrist_pitch" value="1.0472"/>
+    <joint name="wrist_roll" value="0"/>
+  </group_state>
+
+  <!-- 夹爪两端：0 = 合拢（内距 7.50mm），1.39626 rad(80°) = 全开（内距 47.07mm） -->
+  <group_state name="closed" group="gripper">
+    <joint name="finger_left_gear_joint" value="0"/>
+  </group_state>
+
+  <group_state name="open" group="gripper">
+    <joint name="finger_left_gear_joint" value="1.39626"/>
+  </group_state>
+
+  <!-- ==================== 末端执行器 ====================
+
+       parent_link 取 gripper_base_link（不是 tool0）：夹爪的驱动关节
+       finger_left_gear_joint 就挂在 gripper_base_link 上，而 tool0 只是它
+       下方 82mm 处的一个参考点。写成 tool0 会让 MoveIt 认为夹爪组不在
+       该 link 之下。
+       parent_group 留空比较稳；抓取生成时才需要精确的 ik 链。
+  -->
+  <end_effector name="gripper_ee" parent_link="gripper_base_link" group="gripper"/>
+
+  <!-- ==================== 自碰撞豁免 ====================
+
+       MoveIt 只跳过 URDF 里直接相连的父子对，隔代的对都要显式声明。
+       下面分两组：Adjacent（结构装配必然接触）和 Never（爪内部不检测）。
+  -->
+
+  <!-- 相邻对：关节两侧的 link 在任意位姿下都贴着，检测只会刷屏 -->
+  <disable_collisions link1="world" link2="base_link" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="base_yaw_link" reason="Adjacent"/>
+  <disable_collisions link1="base_yaw_link" link2="upper_arm_link" reason="Adjacent"/>
+  <disable_collisions link1="upper_arm_link" link2="forearm_link" reason="Adjacent"/>
+  <disable_collisions link1="forearm_link" link2="wrist_link" reason="Adjacent"/>
+  <disable_collisions link1="wrist_link" link2="wrist_roll_link" reason="Adjacent"/>
+  <disable_collisions link1="wrist_roll_link" link2="gripper_base_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_base_link" link2="tool0" reason="Adjacent"/>
+  <disable_collisions link1="gripper_base_link" link2="finger_left_gear_link" reason="Adjacent"/>
+  <disable_collisions link1="finger_left_gear_link" link2="finger_left_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_base_link" link2="finger_left_bar_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_base_link" link2="finger_right_gear_link" reason="Adjacent"/>
+  <disable_collisions link1="finger_right_gear_link" link2="finger_right_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_base_link" link2="finger_right_bar_link" reason="Adjacent"/>
+
+  <!-- 爪内部：7 个零件（壳体 + 齿扇×2 + 指片×2 + 连杆×2）本来就是铰接在一起的
+       装配体，任何位姿下都互相贴合。夹爪内部做自碰撞检测只会让每次规划都
+       误报，而且夹爪存在的意义就是夹住东西 —— 内部本来就要允许「接触」。
+       这 15 对覆盖 C(7,2)=21 对里剩下的全部（另 6 对是上面的 Adjacent）。
+       注意：指片与**外部**物体（场景里的 box/cylinder）仍然正常检测。 -->
+  <disable_collisions link1="gripper_base_link" link2="finger_left_link" reason="Never"/>
+  <disable_collisions link1="gripper_base_link" link2="finger_right_link" reason="Never"/>
+  <disable_collisions link1="finger_left_gear_link" link2="finger_left_bar_link" reason="Never"/>
+  <disable_collisions link1="finger_left_gear_link" link2="finger_right_gear_link" reason="Never"/>
+  <disable_collisions link1="finger_left_gear_link" link2="finger_right_link" reason="Never"/>
+  <disable_collisions link1="finger_left_gear_link" link2="finger_right_bar_link" reason="Never"/>
+  <disable_collisions link1="finger_left_link" link2="finger_left_bar_link" reason="Never"/>
+  <disable_collisions link1="finger_left_link" link2="finger_right_gear_link" reason="Never"/>
+  <disable_collisions link1="finger_left_link" link2="finger_right_link" reason="Never"/>
+  <disable_collisions link1="finger_left_link" link2="finger_right_bar_link" reason="Never"/>
+  <disable_collisions link1="finger_left_bar_link" link2="finger_right_gear_link" reason="Never"/>
+  <disable_collisions link1="finger_left_bar_link" link2="finger_right_link" reason="Never"/>
+  <disable_collisions link1="finger_left_bar_link" link2="finger_right_bar_link" reason="Never"/>
+  <disable_collisions link1="finger_right_gear_link" link2="finger_right_bar_link" reason="Never"/>
+  <disable_collisions link1="finger_right_link" link2="finger_right_bar_link" reason="Never"/>
+
+</robot>

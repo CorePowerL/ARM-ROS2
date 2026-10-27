@@ -70,14 +70,22 @@ ARM-ROS2/
 ├── ROS2开发路线_K3B机械臂.md           # 六阶段开发路线与硬件配置记录
 ├── k3b_arm_urdf/                      # URDF 模型（含真实舵机网格）
 │   ├── k3b_arm.urdf.xacro             # 参数化源文件（改这个）
+│   ├── k3b_arm_sim.urdf.xacro         # 纯模型 + ros2_control 接口（MoveIt demo 用）
 │   ├── k3b_arm.urdf                   # 展开后可直接加载
 │   ├── meshes/                        # 舵机 + 支架/舵盘/铝爪 STL（米制，已对齐）
+│   ├── ros2_control/                  # 6 个主动关节的 command/state 接口
 │   ├── preview.html                   # 浏览器里看装配 + 拖滑块动关节
 │   ├── expand.py                      # 没装 ROS 时展开 xacro
 │   ├── package.xml / CMakeLists.txt   # 让 package:// 能解析
 │   └── README.md                      # 舵机映射表 / 限位 / 校准清单
-├── tools/                             # STEP → URDF 网格转换工具
+├── k3b_arm_moveit_config/             # MoveIt 2 配置（arm 5 DoF + gripper 1 DoF）
+│   ├── config/                        # srdf / kinematics / joint_limits / controllers / ompl / rviz
+│   ├── launch/                        # demo.launch.py（mock 硬件全套）、move_group.launch.py
+│   └── README.md                      # 依赖 / 跑法 / 5 DoF 说明 / 故障对照表
+├── tools/                             # STEP → URDF 网格转换 + 夹爪反解 + 配置校验
 │   ├── step2mesh.js                   # 输出轴自动探测 + OBJ/STL 导出
+│   ├── claw_4bar.py                   # 四连杆反解（杆长 / 开合曲线 / mimic 系数）
+│   ├── check_moveit_config.py         # MoveIt 配置一致性检查
 │   └── README.md
 ├── viewer3d/                          # STEP 三维图浏览器预览（本地 HTTP 服务）
 │   ├── 启动预览.bat                   # 双击即可看 D:\BaiduNetdiskDownload\最新三维图
@@ -114,19 +122,38 @@ rviz2
 xacro k3b_arm_urdf/k3b_arm.urdf.xacro > k3b_arm_urdf/k3b_arm.urdf
 ```
 
-### 3. MoveIt2 配置
+### 3. MoveIt2 运动规划
+
+配置已经写好在 [`k3b_arm_moveit_config/`](k3b_arm_moveit_config/)，不用再跑 Setup Assistant。
 
 ```bash
-sudo apt install ros-jazzy-moveit
-ros2 run moveit_setup_assistant moveit_setup_assistant
+sudo apt install ros-jazzy-moveit \
+                 ros-jazzy-ros2-control ros-jazzy-ros2-controllers \
+                 ros-jazzy-joint-state-publisher-gui
+
+colcon build --symlink-install && source install/setup.bash
+ros2 launch k3b_arm_moveit_config demo.launch.py
 ```
 
-导入 `k3b_arm.urdf`，规划组：
-- `arm`：**4 个位置关节**（`base_yaw` + `shoulder_pitch` + `elbow_pitch` + `wrist_pitch`）
-  - **不要把 `wrist_roll` 加入规划组**——它是 360° 速度舵机，无位置反馈，不做逆解
-- `gripper`：**只放 `finger_left_gear_joint`**（revolute 0~1.39626 rad）；其余 5 个从动关节都是
-  mimic，不要重复加进组，否则会被当成独立自由度
-- 逆解：默认 KDL，效果差换 TRAC-IK
+RViz 里 Planning Group 选 `arm`，Goal State 选 `ready`，Plan → Execute 就能看到手臂动起来
+（mock 硬件，不需要实机也不需要 Gazebo）。
+
+规划组：
+
+- `arm`：**5 个关节**（`base_yaw` + `shoulder_pitch` + `elbow_pitch` + `wrist_pitch` + `wrist_roll`）
+- `gripper`：**只放 `finger_left_gear_joint`**；其余 5 个四连杆从动件是 mimic，不能加进组
+
+> ⚠️ **「六轴」是六个舵机，不是六个臂轴。** 三个 pitch 关节都在同一个竖直平面里，
+> 工具轴永远困在该平面内 —— 任意 6 维位姿目标约一半无解。设目标时先让 `base_yaw`
+> 对准方位角；嫌麻烦就把 `kinematics.yaml` 的 `position_only_ik` 改 `true`。
+> 换 `pick_ik` 成功率提升明显，理由和改法见
+> [`k3b_arm_moveit_config/README.md`](k3b_arm_moveit_config/README.md) 第四、五节。
+
+改完配置跑一次校验（能抓出"错了也不报错、只是行为诡异"的问题）：
+
+```bash
+python tools/check_moveit_config.py
+```
 
 ## 开发路线
 
@@ -135,7 +162,7 @@ ros2 run moveit_setup_assistant moveit_setup_assistant
 | 0 | Linux 环境（Ubuntu 24.04 烧录） | 🔲 |
 | 1 | ROS2 Jazzy 基础 | 🔲 |
 | 2 | URDF 建模 + RViz 可视化 | ✅ 已完成（含真实舵机网格） |
-| 3 | MoveIt2 运动规划 | 🔲 |
+| 3 | MoveIt2 运动规划 | ✅ 已完成（arm 5 DoF + gripper 1 DoF，mock 硬件可执行） |
 | 4 | Gazebo 仿真（可选） | 🔲 |
 | 5 | Linux ↔ STM32 串口通信 | 🔲 |
 | 6 | 实机联调 + 抓取 | 🔲 |

@@ -1,0 +1,49 @@
+# 逆解器配置
+# ---------------------------------------------------------------------------
+# 这个臂是 base_roll(Z) → 3×pitch(Y) → roll(Z)，只有 **5 DoF**，
+# 而且**没有球形手腕**（后三个轴不交于一点）。两点后果：
+#
+#   1. 工具轴永远躺在 base_yaw 转出的那个竖直平面里 → 6 维位姿目标有 1 维
+#      天生给不出来，任意 Pose 约一半无解。设目标时先让 base_yaw 对准方位角。
+#   2. KDL 的牛顿迭代在非球腕上收敛率一般，5 DoF 对 6 维约束更是雪上加霜。
+#
+# position_only_ik：默认关（保留姿态约束，规划出来更像人想要的样子）。
+#   如果你在 RViz 里拖目标一直报 "Unable to find IK solution"，两种解法：
+#     · 把 true 打开 —— 只解位置，姿态由 IK 自己挑，几乎必解出来
+#     · 换 pick_ik（见下），它对欠驱动臂的容错明显比 KDL 好
+#
+# 想用更好的逆解器（强烈建议，尤其准备做实机时）：
+#   sudo apt install ros-jazzy-pick-ik
+#   然后把下面 arm 段整体替换成：
+#
+#   arm:
+#     kinematics_solver: pick_ik/PickIkPlugin
+#     kinematics_solver_timeout: 0.05
+#     kinematics_solver_attempts: 3
+#     mode: global
+#     stopping_scale: 0.001
+#     position_threshold: 0.001     # 1mm
+#     orientation_threshold: 0.01   # rad
+#     cost_threshold: 0.001
+#     minimal_displacement_weight: 0.0
+#
+#   或者 TRAC-IK： sudo apt install ros-jazzy-trac-ik-kinematics-plugin
+#   arm:
+#     kinematics_solver: trac_ik_kinematics_plugin/TRAC_IKKinematicsPlugin
+#     kinematics_solver_timeout: 0.05
+#     solve_type: Speed
+# ---------------------------------------------------------------------------
+
+arm:
+  kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+  kinematics_solver_search_resolution: 0.005
+  kinematics_solver_timeout: 0.05
+  kinematics_solver_attempts: 3
+  position_only_ik: false
+
+# gripper 组只有 1 个关节、且没有独立的 tip 链，理论上不需要逆解器。
+# 但 MoveIt 对没有 IK 配置的组会刷 "No kinematics solver" 警告，占个位。
+gripper:
+  kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+  kinematics_solver_search_resolution: 0.005
+  kinematics_solver_timeout: 0.05

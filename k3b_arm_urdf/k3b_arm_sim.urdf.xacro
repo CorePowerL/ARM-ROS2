@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  K3B 机械臂 · 仿真 / ros2_control 版 URDF 入口
+  =============================================================
+  xacro 的 include 会把被包含文件的 <robot> 根节点拆掉、只取其子节点，
+  所以这里能干净地把「纯模型」和「控制接口」拼在一起，而不用去动
+  k3b_arm.urdf.xacro 一行。
+
+  什么时候用哪个文件：
+    k3b_arm.urdf.xacro        纯模型。RViz 预览、URDF 检查、MoveIt Setup Assistant
+    k3b_arm_sim.urdf.xacro    纯模型 + ros2_control 接口。跑 MoveIt demo 用这个
+
+  两个 include 都用**相对路径**（相对于本文件），不依赖 $(find k3b_arm_urdf)，
+  所以直接在仓库里 `xacro k3b_arm_urdf/k3b_arm_sim.urdf.xacro` 也能跑，
+  装到 share/ 之后路径关系不变。
+  =============================================================
+-->
+<robot name="k3b_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- 本体：link / joint / 网格，和纯模型版完全一致 -->
+  <xacro:include filename="k3b_arm.urdf.xacro"/>
+
+  <!-- 控制接口：只声明 6 个主动关节 -->
+  <xacro:include filename="ros2_control/k3b_arm.ros2_control.xacro"/>
+
+</robot>

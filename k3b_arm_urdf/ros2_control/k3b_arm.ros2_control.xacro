@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<!--
+  ros2_control 硬件接口声明
+  =============================================================
+  这个文件**不被** k3b_arm.urdf.xacro 包含 —— 只用 ros2_control / MoveIt 的
+  场景才需要它（见 k3b_arm_sim.urdf.xacro）。RViz 纯模型预览、URDF 校验、
+  MoveIt Setup Assistant 导入时都不会碰到这里。
+
+  为什么只声明 6 个关节
+  =====================
+  只有**主动关节**需要 command/state interface。夹爪那 5 个四连杆从动件
+  （finger_left_joint / finger_left_bar_joint / 右指三个）是 URDF 里用
+  <mimic> 描述的，ros2_control 不认 <mimic>，它们的位置由
+  robot_state_publisher 根据主动关节推算并发布 TF。
+  把 mimic 关节写进来会导致控制器收到重复指令、状态互相打架。
+
+  换真机时改什么
+  ==============
+  把 <hardware><plugin> 换成真实硬件插件（例如在 STM32 侧跑 PWM，
+  K3B 侧写一个 SystemInterface 读串口），其余关节声明不用动：
+
+      <plugin>k3b_arm_hardware/K3bArmSystem</plugin>
+      <param name="serial_port">/dev/ttyS3</param>
+      <param name="baudrate">115200</param>
+
+  每个关节的 command_interface 是 position（单位 rad），
+  正好对应"ROS 侧发弧度目标角、STM32 转脉宽"的既定架构。
+  =============================================================
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <ros2_control name="k3b_arm_system" type="system">
+    <hardware>
+      <!-- demo / 仿真用 mock：把 position 指令直接当成状态回读。
+           带 calculate_dynamics 时还会积分出 velocity，RViz 里的
+           速度标量显示才不会是 0。 -->
+      <plugin>mock_components/GenericSystem</plugin>
+      <param name="calculate_dynamics">true</param>
+    </hardware>
+
+    <!-- ==================== 臂：5 DoF ==================== -->
+    <joint name="base_yaw">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="shoulder_pitch">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="elbow_pitch">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="wrist_pitch">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="wrist_roll">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- ==================== 夹爪：1 DoF（S1） ====================
+         0 = 合拢（指间内距 7.50mm），1.39626 rad(80°) = 全开（47.07mm）。
+         四连杆的 5 个从动件不在这里，见文件头说明。 -->
+    <joint name="finger_left_gear_joint">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+
+  </ros2_control>
+</robot>

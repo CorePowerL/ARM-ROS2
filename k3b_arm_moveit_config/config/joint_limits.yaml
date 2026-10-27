@@ -1,0 +1,59 @@
+# 关节速度 / 加速度上限
+# ---------------------------------------------------------------------------
+# 位置限位不在这里写 —— 那是 URDF 的事，改 URDF 才有效。这里只管
+# MoveIt 做时间参数化时用的速度和加速度。
+#
+# 舵机手册给的是「0.16s / 60°」这类角度-时间指标，换不出加速度。
+# 下面的加速度是按「从静止到额定速度约 0.15~0.5s」估的，宁小勿大：
+# 舵机是位置闭环，轨迹给太急会过冲、抖、甚至堵转。
+# 实机跑顺了再往上加，别一上来就拉满。
+#
+# 全局缩放：RViz 里滑条默认值，也影响 MoveIt 的执行速度。
+# 0.3 意味着按上面的 30% 走 —— 第一次联调建议更低（0.1~0.2）。
+# ---------------------------------------------------------------------------
+
+default_velocity_scaling_factor: 0.3
+default_acceleration_scaling_factor: 0.3
+
+joint_limits:
+
+  # ---- arm ----------------------------------------------------------------
+  base_yaw:
+    has_velocity_limits: true
+    max_velocity: 1.5
+    has_acceleration_limits: true
+    max_acceleration: 2.0
+
+  shoulder_pitch:
+    # 负载最大的一根：整条小臂 + 夹爪都压在它上面
+    has_velocity_limits: true
+    max_velocity: 1.2
+    has_acceleration_limits: true
+    max_acceleration: 1.5
+
+  elbow_pitch:
+    has_velocity_limits: true
+    max_velocity: 1.5
+    has_acceleration_limits: true
+    max_acceleration: 2.0
+
+  wrist_pitch:
+    has_velocity_limits: true
+    max_velocity: 1.5
+    has_acceleration_limits: true
+    max_acceleration: 3.0
+
+  wrist_roll:
+    # 360° 速度舵机（DS3120），continuous，没有位置限位
+    has_velocity_limits: true
+    max_velocity: 6.0
+    has_acceleration_limits: true
+    max_acceleration: 10.0
+
+  # ---- gripper ------------------------------------------------------------
+  finger_left_gear_joint:
+    # S1 驱动齿轮臂；四连杆的传动比在 1.1 附近，指片实际摆动比齿轮慢一点
+    has_velocity_limits: true
+    max_velocity: 2.0
+    has_acceleration_limits: true
+    max_acceleration: 8.0

@@ -1,0 +1,59 @@
+# OMPL 规划器
+# ---------------------------------------------------------------------------
+# 默认 RRTConnect：对 6 DoF 串联臂又快又稳，是绝大多数场景的正确起点。
+# 只有下面两种情况才需要换：
+#   · 空间窄、要经过很长的迂回路径 → RRTstar（更优但慢一个量级）
+#   · 反复规划同一批目标 → PRM（建图后查询极快）
+#
+# longest_valid_segment_fraction 控制碰撞检测的采样密度：0.005 表示每段
+# 按关节空间 0.5% 行程切一刀。臂长 25cm 时对应约 1mm，够细了。
+# 调大能提速但可能漏检细窄障碍，调小则反过来。
+# ---------------------------------------------------------------------------
+
+planning_plugins:
+  - ompl_interface/OMPLPlanner
+
+request_adapters:
+  - default_planning_request_adapters/ResolveConstraintFrames
+  - default_planning_request_adapters/ValidateWorkspaceBounds
+  - default_planning_request_adapters/CheckStartStateBounds
+  - default_planning_request_adapters/CheckStartStateCollision
+
+response_adapters:
+  - default_planning_response_adapters/AddTimeOptimalParameterization
+  - default_planning_response_adapters/ValidateSolution
+  - default_planning_response_adapters/DisplayMotionPath
+
+arm:
+  default_planner_config: RRTConnect
+  longest_valid_segment_fraction: 0.005
+  # 投影评估器只在 RViz 的「状态空间」可视化里用得上，给一组能拉开构型的关节
+  projection_evaluator: joints(base_yaw,elbow_pitch)
+  planner_configs:
+    RRTConnect:
+      type: geometric::RRTConnect
+      range: 0.0            # 0 = 自动取「整个状态空间对角线的 1/10」
+    RRT:
+      type: geometric::RRT
+      range: 0.0
+      goal_bias: 0.05
+    RRTstar:
+      type: geometric::RRTstar
+      range: 0.0
+      goal_bias: 0.05
+      delay_collision_checking: 1
+    PRM:
+      type: geometric::PRM
+      max_nearest_neighbors: 10
+    EST:
+      type: geometric::EST
+      range: 0.0
+      goal_bias: 0.05
+
+gripper:
+  default_planner_config: RRTConnect
+  longest_valid_segment_fraction: 0.005
+  planner_configs:
+    RRTConnect:
+      type: geometric::RRTConnect
+      range: 0.0

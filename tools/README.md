@@ -87,6 +87,34 @@ python tools/emit_gripper.py       # 把结果写进 k3b_arm.urdf.xacro（幂等
 > 定位，重复运行结果一致。它输出的是**数值字面量**，不是 `${...}` 表达式 ——
 > `${-${gear_u}}` 这种嵌套写法 xacro 不会求值，会原样留在 URDF 里。
 
+## 校验 MoveIt 配置
+
+```bash
+python tools/check_moveit_config.py
+```
+
+MoveIt 最气人的地方是**配置写错时不报错**：只表现为 RViz 里那个面板莫名其妙是灰的、
+规划永远红色、点 Execute 毫无反应。所以改完 SRDF / yaml 就跑一次。
+
+它检查的是「错了也不报错、只是行为诡异」的那几类：
+
+| 检查项 | 不检查会怎样 |
+|---|---|
+| SRDF 引用的 link / joint 是否存在 | 面板灰掉，日志里连 warning 都没有 |
+| chain 是否连通、DoF 是否对得上 | 规划组为空，或悄悄多/少一个自由度 |
+| `group_state` 的值是否超限位 | 一选那个位姿就报 start state out of bounds |
+| mimic 关节有没有混进 group / controller / ros2_control | 静态模型正常，一动就打架 |
+| 父子 link 是否都在 `disable_collisions` 里 | 每次规划都报自碰撞，永远红 |
+| 夹爪内部（`gripper_base_link` 全部后代）是否两两豁免 | 一张开就自撞 |
+| 三处 controller 的关节列表是否一致 | 能规划，点 Execute 没反应 |
+
+另外会打印每个命名位姿的正运动学结果 —— 末端坐标、工具轴方向。数字明显不对
+（跑到地面以下、工具轴朝天）就是位姿写错了。
+
+脚本本身做过注入测试：删一条 `disable_collisions`、把 `group_state` 改成超限、
+从 controller 里删一个关节、往 ros2_control 里塞 mimic 关节、把 chain 的 tip 写成
+不存在的 link —— 五种错误全部能被抓出来。
+
 ## 网页截图自检
 
 `msedge --headless --screenshot` 在新版 Edge 上经常不出文件，改用 CDP：
