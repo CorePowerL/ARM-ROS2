@@ -4,7 +4,7 @@
   =============================================================
   执行器实测映射（2026-10-25）
 
-  S1  180° 位置   脉宽 850~1500   上电 850    → finger_left      限位 0~58.5°
+  S1  180° 位置   脉宽 850~1500   上电 850    → finger_left      行程 0~10mm
   S2  180° 位置   脉宽 500~2500   上电 1500   → base_yaw         限位 ±90°
   S3  270° 位置   脉宽 500~2000   上电 2000   → shoulder_pitch   限位 ±101°
   S4  270° 位置   脉宽 500~2500   上电 500    → elbow_pitch      限位 ±135°
@@ -44,8 +44,10 @@
   <xacro:property name="lim_should" value="1.7628"/>   <!-- S3  270°  ±101° -->
   <xacro:property name="lim_elbow"  value="2.3562"/>   <!-- S4  270°  ±135° -->
   <xacro:property name="lim_wpitch" value="2.2340"/>   <!-- S5  270°  ±128° -->
-  <xacro:property name="lim_finger" value="1.0210"/>   <!-- S1  180°  0~58.5° -->
   <xacro:property name="joint_speed" value="1.5"/>
+
+  <!-- 夹爪：单指行程（m）。0 = 合拢（指间缝 7.5mm），0.010 = 张开（缝 27.5mm） -->
+  <xacro:property name="finger_stroke" value="0.010"/>
 
   <!-- ================= 网格 ================= -->
   <xacro:property name="mesh_dir" value="package://k3b_arm_urdf/meshes/"/>
@@ -303,15 +305,19 @@
       <origin xyz="${s20f_xoff} -0.012 0.008" rpy="${servo_y_rpy}"/>
       <material name="servo_mat"/>
     </visual>
-    <!-- 新款机械爪（铝制平行连杆）：整机刚性挂载 -->
+    <!-- 新款机械爪（铝制平行连杆）：壳体 / 连杆部分 -->
     <visual>
-      <geometry><mesh filename="${mesh_dir}part_claw.stl"/></geometry>
+      <geometry><mesh filename="${mesh_dir}claw_body.stl"/></geometry>
       <origin xyz="0 0 0.040" rpy="0 ${pi} 0"/>
       <material name="metal_mat"/>
     </visual>
     <collision>
       <geometry><box size="0.032 0.026 0.016"/></geometry>
       <origin xyz="0 0 0.014" rpy="0 0 0"/>
+    </collision>
+    <collision>
+      <geometry><box size="0.060 0.022 0.078"/></geometry>
+      <origin xyz="0 0 0.025" rpy="0 0 0"/>
     </collision>
     <inertial>
       <mass value="0.1"/>
@@ -333,34 +339,59 @@
   </joint>
 
   <!-- ================= J6 左指（S1 驱动） ================= -->
-  <!-- 视觉由机械爪整机承担，这里只保留运动学链供 MoveIt 使用 -->
+  <!-- 平行连杆爪的等效自由度：指片沿 +X 平移（不是绕轴摆动）。
+       实机是 S1 转舵盘 → 四连杆 → 指片直线开合，中间连杆的转角对外不可见，
+       URDF 里直接把它折成 prismatic，MoveIt 侧也更好规划。
+       指片网格保留整爪坐标系，靠 visual/origin 对齐，两指在 0 位严丝合缝。 -->
   <link name="finger_left_link">
+    <visual>
+      <geometry><mesh filename="${mesh_dir}finger_left.stl"/></geometry>
+      <origin xyz="0 0 0.040" rpy="0 ${pi} 0"/>
+      <material name="link_mat"/>
+    </visual>
+    <!-- 指片实测 X 1.0~17.9  Y -4.0~1.0  Z 35.0~94.3 (mm) -->
+    <collision>
+      <geometry><box size="0.0169 0.005 0.0593"/></geometry>
+      <origin xyz="0.00945 -0.0015 0.06465" rpy="0 0 0"/>
+    </collision>
     <inertial>
-      <mass value="0.02"/>
-      <inertia ixx="0.00001" ixy="0.0" ixz="0.0" iyy="0.00001" iyz="0.0" izz="0.00001"/>
+      <mass value="0.03"/>
+      <inertia ixx="0.00002" ixy="0.0" ixz="0.0" iyy="0.00002" iyz="0.0" izz="0.00001"/>
     </inertial>
   </link>
-  <joint name="finger_left_joint" type="revolute">
+  <joint name="finger_left_joint" type="prismatic">
     <parent link="gripper_base_link"/>
     <child link="finger_left_link"/>
-    <origin xyz="0 0.018 0.040" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit lower="0" upper="${lim_finger}" effort="3.0" velocity="2.0"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="${finger_stroke}" effort="12.0" velocity="0.04"/>
+    <dynamics damping="2.0" friction="0.5"/>
   </joint>
 
   <!-- ================= J6 右指（mimic 跟随左指） ================= -->
   <link name="finger_right_link">
+    <visual>
+      <geometry><mesh filename="${mesh_dir}finger_right.stl"/></geometry>
+      <origin xyz="0 0 0.040" rpy="0 ${pi} 0"/>
+      <material name="link_mat"/>
+    </visual>
+    <!-- 指片实测 X -23.4~-6.5  Y -4.0~1.0  Z 35.0~94.3 (mm) -->
+    <collision>
+      <geometry><box size="0.0169 0.005 0.0593"/></geometry>
+      <origin xyz="-0.01495 -0.0015 0.06465" rpy="0 0 0"/>
+    </collision>
     <inertial>
-      <mass value="0.02"/>
-      <inertia ixx="0.00001" ixy="0.0" ixz="0.0" iyy="0.00001" iyz="0.0" izz="0.00001"/>
+      <mass value="0.03"/>
+      <inertia ixx="0.00002" ixy="0.0" ixz="0.0" iyy="0.00002" iyz="0.0" izz="0.00001"/>
     </inertial>
   </link>
-  <joint name="finger_right_joint" type="revolute">
+  <joint name="finger_right_joint" type="prismatic">
     <parent link="gripper_base_link"/>
     <child link="finger_right_link"/>
-    <origin xyz="0 -0.018 0.040" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit lower="-${lim_finger}" upper="0" effort="3.0" velocity="2.0"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-${finger_stroke}" upper="0" effort="12.0" velocity="0.04"/>
+    <dynamics damping="2.0" friction="0.5"/>
     <mimic joint="finger_left_joint" multiplier="-1" offset="0"/>
   </joint>
 

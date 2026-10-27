@@ -37,6 +37,32 @@ node tools/scan.js "D:/.../最新三维图/支架三维图"
 
 一次列出目录下所有 STEP 的包围盒、零件数、三角面数 —— 快速找出「这个支架是不是我要的那个」。
 
+## 把刚性网格拆成可动件
+
+`part_claw.stl` 是 21 个零件叠成的刚性网格，挂到 URDF 上只能看、不能开合。
+`split_claw.py` 用顶点焊接 + 并查集找连通分量，再按几何特征分类导出：
+
+```bash
+python tools/split_claw.py k3b_arm_urdf/meshes/part_claw.stl
+```
+
+会打印每个分件的尺寸与归属，然后写出 `claw_body.stl` / `finger_left.stl` / `finger_right.stl`。
+判据写在脚本头部（长薄板 = 指片，其余 = 壳体），换别的爪改那三个阈值即可。
+
+## 网页截图自检
+
+`msedge --headless --screenshot` 在新版 Edge 上经常不出文件，改用 CDP：
+
+```bash
+node tools/shot.js http://127.0.0.1:8777/k3b_arm_urdf/preview.html out.png \
+  --js "document.querySelectorAll('#joints input')[5].value=0.01;
+        document.querySelectorAll('#joints input')[5].dispatchEvent(new Event('input'))" \
+  --wait 4000 --w 1200 --h 800
+```
+
+`--js` 里的表达式在页面里执行，返回值会打印出来（配合 `window.__preview` 可以直接量尺寸），
+页面 console 与异常也会一起回显。
+
 ## 已分析的模型
 
 ### DS3120 20kg（`最新三维图/DS3120 20kg.stp`）

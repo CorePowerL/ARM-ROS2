@@ -310,12 +310,25 @@ async function build(urdfText) {
 let model = null;
 const angles = {};
 
+/** prismatic 用毫米，其余用度 */
+const fmtVal = (joint, v) => (joint.type === 'prismatic'
+  ? (v * 1000).toFixed(1) + ' mm'
+  : ((v * 180) / Math.PI).toFixed(1) + '\u00b0');
+
 function applyAll() {
   for (const [name, { axisNode, joint }] of Object.entries(model.jointNodes)) {
     if (joint.type === 'fixed') continue;
     let a = angles[name] || 0;
     if (joint.mimic) a = (angles[joint.mimic.joint] || 0) * joint.mimic.mul;
-    axisNode.quaternion.setFromAxisAngle(joint.axis, a);
+    if (joint.type === 'prismatic') {
+      // 平移关节：沿 axis 位移，姿态不变
+      axisNode.quaternion.identity();
+      axisNode.position.copy(joint.axis).multiplyScalar(a);
+    } else {
+      // 转动关节：绕 axis 旋转，位置不变
+      axisNode.position.set(0, 0, 0);
+      axisNode.quaternion.setFromAxisAngle(joint.axis, a);
+    }
   }
 }
 
@@ -324,8 +337,9 @@ function buildSliders() {
   wrap.innerHTML = '';
   for (const j of model.joints) {
     if (j.type === 'fixed') continue;
-    const lo = j.type === 'continuous' ? -Math.PI : (j.lower ?? -Math.PI);
-    const hi = j.type === 'continuous' ? Math.PI : (j.upper ?? Math.PI);
+    const lin = j.type === 'prismatic';
+    const lo = j.type === 'continuous' ? -Math.PI : (j.lower ?? (lin ? 0 : -Math.PI));
+    const hi = j.type === 'continuous' ? Math.PI : (j.upper ?? (lin ? 0.01 : Math.PI));
     angles[j.name] = 0;
 
     const row = document.createElement('div');
@@ -336,21 +350,20 @@ function buildSliders() {
          <span class="jservo">${SERVO_OF[j.name] || ''}</span>
        </div>
        <div class="jhead" style="margin-bottom:2px">
-         <input type="range" min="${lo}" max="${hi}" step="0.005" value="0" ${j.mimic ? 'disabled' : ''}/>
-         <span class="jval">0.0°</span>
+         <input type="range" min="${lo}" max="${hi}" step="${lin ? 0.0002 : 0.005}" value="0" ${j.mimic ? 'disabled' : ''}/>
+         <span class="jval">${fmtVal(j, 0)}</span>
        </div>`;
 
     const input = row.querySelector('input');
     const val = row.querySelector('.jval');
     const upd = () => {
-      const deg = (angles[j.name] * 180) / Math.PI;
-      val.textContent = deg.toFixed(1) + '°';
+      val.textContent = fmtVal(j, angles[j.name] || 0);
       // mimic 同步显示
       for (const k of Object.keys(model.jointNodes)) {
-        if (model.jointNodes[k].joint.mimic && model.jointNodes[k].joint.mimic.joint === j.name) {
-          const mdeg = deg * model.jointNodes[k].joint.mimic.mul;
+        const mj = model.jointNodes[k].joint;
+        if (mj.mimic && mj.mimic.joint === j.name) {
           const el = wrap.querySelector(`[data-mimic="${k}"]`);
-          if (el) el.textContent = mdeg.toFixed(1) + '°';
+          if (el) el.textContent = fmtVal(mj, (angles[j.name] || 0) * mj.mimic.mul);
         }
       }
     };
@@ -452,11 +465,7 @@ tick();
 })();
 
 $('reset').addEventListener('click', () => {
-  for (const k of Object.keys(angles)) angles[k] = 0;
-  document.querySelectorAll('#joints input').forEach((i) => { i.value = 0; });
-  document.querySelectorAll('#joints .jval').forEach((v) => {
-    v.textContent = v.hasAttribute('data-mimic') ? '跟随' : '0.0°';
-  });
+  buildSliders();   // 重建 = 角度清零 + 标签按关节类型重排
   applyAll();
 });
 

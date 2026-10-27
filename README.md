@@ -28,7 +28,7 @@
 
 | 舵机 | 类型 | 脉宽范围(μs) | 上电初始 | URDF 关节名 | 作用 | 限位(相对直立位) |
 |---|---|---|---|---|---|---|
-| S1 | 180° 位置 | 850–1500 | 850 | `finger_left_joint` | 夹爪开合 | 0 ~ 58.5° |
+| S1 | 180° 位置 | 850–1500 | 850 | `finger_left_joint` | 夹爪开合 | 行程 0 ~ 10 mm |
 | S2 | 180° 位置 | 500–2500 | 1500 | `base_yaw` | 底座偏航 | ±90° |
 | S3 | 270° 位置 | 500–2000 | 2000 | `shoulder_pitch` | 肩俯仰 | ±101° |
 | S4 | 270° 位置 | 500–2500 | 500 | `elbow_pitch` | 肘俯仰 | ±135° |
@@ -47,9 +47,11 @@
 | `elbow_pitch` | revolute | Y | S4 | 肘俯仰 | ±135° |
 | `wrist_pitch` | revolute | Y | S5 | 腕俯仰 | ±128° |
 | `wrist_roll` | **continuous** | Z | DS3120 | 腕滚转（速度舵机） | 无限位 |
-| `finger_left/right` | revolute | Y | S1 | 两指夹爪（右指 mimic） | 0–58.5° |
+| `finger_left/right` | **prismatic** | X | S1 | 两指夹爪（右指 mimic，单指行程 10mm） | 0–10 mm |
 
-末端工具坐标系：`tool0`。**全关节为 0 = 直臂垂直**，限位均相对该位姿定义。
+末端工具坐标系：`tool0`。**全关节为 0 = 直臂垂直 + 夹爪合拢**，限位均相对该位姿定义。
+
+> 夹爪用 prismatic 而非 revolute：实机是 S1 转舵盘 → 四连杆 → 指片**直线**开合，中间连杆转角对外不可见，URDF 折成等效平移。指间缝 7.5mm（合拢）→ 27.5mm（全开）。
 
 ## 目录结构
 
@@ -114,7 +116,7 @@ ros2 run moveit_setup_assistant moveit_setup_assistant
 导入 `k3b_arm.urdf`，规划组：
 - `arm`：**4 个位置关节**（`base_yaw` + `shoulder_pitch` + `elbow_pitch` + `wrist_pitch`）
   - **不要把 `wrist_roll` 加入规划组**——它是 360° 速度舵机，无位置反馈，不做逆解
-- `gripper`：`finger_left_joint`（右指 mimic，自动跟随）
+- `gripper`：`finger_left_joint`（prismatic 0~10mm；右指 mimic，自动跟随）
 - 逆解：默认 KDL，效果差换 TRAC-IK
 
 ## 开发路线
@@ -139,7 +141,7 @@ ros2 run moveit_setup_assistant moveit_setup_assistant
 2. **关节限位实测**：避免规划到卡死位置
 3. **轴朝向核对**：与实物安装方向一致
 4. **真实质量/惯量**：Gazebo 物理仿真前必须填写
-5. **夹爪开合量**：确认 `lim_finger`(58.5°) 与实际工件尺寸匹配
+5. **夹爪行程**：实测 S1 从 850→1500μs 时两指的真实位移，改 `finger_stroke`（当前 0.010 为几何估算）
 
 ## 角度→脉宽映射（STM32 侧）
 
