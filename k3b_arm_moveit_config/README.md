@@ -30,27 +30,45 @@ http://127.0.0.1:8777/k3b_arm_urdf/preview.html
 > 不能直接双击 `preview.html` —— 它用绝对路径引 `three`（`/viewer3d/vendor/...`），
 > `file://` 下会被浏览器拦。必须走上面那个本地服务。
 
-### B. 要真的规划、Execute、看手臂动 → 需要 Linux
+### B. 要跑仿真（规划 → Execute → 看手臂动）→ 需要 Linux
 
-三选一，按推荐顺序：
+**先把一件事说清楚：仿真不需要实机、不需要 Gazebo。** `demo.launch.py` 用的就是
+`mock_components` 假硬件 —— 位置指令直接当状态回读，规划出来的轨迹能真的走一遍。
+这就是「仿真」，只是它仿的是**运动学**（位置/姿态/限位/自碰撞），不是重力摩擦那一套。
+
+三选一：
 
 | 方案 | 代价 | 适合 |
 |---|---|---|
-| **WSL2 + Ubuntu 24.04** | 装一次，半小时 | **先用这个**，就在这台 Windows 上，Win11 自带图形转发（WSLg），RViz 能直接弹窗 |
-| 一台 Ubuntu 24.04 物理机 / 双系统 | 另一台机器 | 长期主力开发，跑 Gazebo 也够力 |
-| K3B 板子上原生跑 | ARM64 装 MoveIt 依赖多、算力紧 | 只做最后实机联调，不建议拿它当开发机 |
+| **WSL2 + Ubuntu 24.04**（推荐） | 装一次 20 分钟 + 装包 15 分钟 | 就在这台 Windows 上跑，Win11 自带 WSLg，RViz 直接弹窗 |
+| 一台 Ubuntu 24.04 物理机 / 双系统 | 另一台机器 | 长期主力开发，要跑 Gazebo 才有必要 |
+| K3B 板子上原生跑 | ARM64 包少、算力紧 | 只做最后实机联调，别拿它当开发机 |
 
-#### WSL2 全程命令（管理员 PowerShell）
+#### 一键装（推荐）
+
+1. 管理员 PowerShell：`wsl --install -d Ubuntu-24.04` → 重启
+2. 开始菜单打开一次 **Ubuntu**，设好 Linux 用户名密码
+3. **双击 `tools/启动仿真.bat`**
+
+第 3 步会调 `tools/bootstrap_wsl_ros2.sh` 把所有事做完：加 ROS apt 源 → 装
+`ros-jazzy-desktop` + `moveit` + `ros2_control` → 建 `~/k3b_ws` 软链本仓库 →
+`colcon build` → 跑一遍配置自检 → 起 RViz。**幂等**，重复双击只会启动不再重装。
+装包那步约 2 GB，第一次要等十几分钟。
+
+> 脚本会先做环境体检：不是 Ubuntu 24.04 直接拒绝并说明原因（22.04 只有 Humble）；
+> 没检测到 WSLg 会提醒 `wsl --update`。
+
+#### 手动做（不想跑脚本时）
 
 ```powershell
-wsl --install -d Ubuntu-24.04      # 装完重启，按提示设 Linux 用户名密码
+wsl --install -d Ubuntu-24.04      # 管理员 PowerShell，装完重启
 wsl --set-default-version 2
 ```
 
-然后进 Ubuntu（开始菜单搜 Ubuntu，或 `wsl`），装 ROS 2 Jazzy：
+进 Ubuntu 后：
 
 ```bash
-# 1) 把 ROS 2 的 apt 源加上（不做这步 apt 里根本没有 ros-jazzy-*）
+# 1) 加 ROS 2 apt 源（不做这步 apt 里根本没有 ros-jazzy-*）
 sudo apt update && sudo apt install -y curl gnupg lsb-release
 sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
      -o /usr/share/keyrings/ros-archive-keyring.gpg
@@ -58,25 +76,26 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-a
 http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
   | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
-# 2) 装桌面版（含 RViz）+ 编译工具
+# 2) 装桌面版（含 RViz）+ MoveIt + 编译工具
 sudo apt update
-sudo apt install -y ros-jazzy-desktop ros-dev-tools
+sudo apt install -y ros-jazzy-desktop ros-jazzy-moveit \
+     ros-jazzy-ros2-control ros-jazzy-ros2-controllers \
+     ros-jazzy-joint-state-publisher ros-jazzy-joint-state-publisher-gui \
+     ros-dev-tools python3-numpy python3-yaml
 
-# 3) 让每个新终端自动 source
+# 3) 每个新终端自动 source
 echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc && source ~/.bashrc
-
-# 4) 初始化 rosdep（colcon 装系统依赖时要用）
 sudo rosdep init 2>/dev/null; rosdep update
 ```
 
-`Ubuntu 24.04` 对应的发行版就是 **Jazzy**，版本别装错 —— 22.04 只能装 Humble，
-本包的 launch 用的是 Jazzy 的 API。
+`Ubuntu 24.04` 对应 **Jazzy**，版本别装错 —— 22.04 只有 Humble，本包 launch 用的是
+Jazzy 的 API。
 
 #### 把仓库挂进 colcon 工作空间
 
 仓库里两个包都在根目录，没有 `src/`。**不要直接在仓库根目录 `colcon build`**
 （会在仓库里生成 build/install/log，还会把 `viewer3d`、`assets` 一起扫进来）。
-用符号链接挂出去，仓库保持干净：
+软链出去，仓库保持干净：
 
 ```bash
 REPO="/mnt/c/Users/丁锐/WorkBuddy/Worktrees/ARM-ROS2model/main-e47949fe"   # 按你自己机器改
@@ -88,9 +107,8 @@ source install/setup.bash
 ros2 launch k3b_arm_moveit_config demo.launch.py
 ```
 
-> `/mnt/c` 上编译慢一些。嫌慢就把两个包 `cp -r` 到 `~/k3b_ws/src`，
-> 改完再同步回去 —— 但**别反过来**用 Windows 那边编辑 `~/` 里的文件，WSL 内文件
-> 从 Windows 侧写容易乱权限。
+> `/mnt/c` 上编译慢一些。嫌慢就把两个包 `cp -r` 到 `~/k3b_ws/src`，改完再同步回去 ——
+> 但**别反过来**用 Windows 那边编辑 `~/` 里的文件，WSL 内文件从 Windows 侧写容易乱权限。
 
 `--symlink-install` 的好处：之后在 Windows 里（比如用 VSCode）改 yaml / srdf，
 重新 `colcon build` 是秒级，不用重编。
@@ -99,10 +117,23 @@ ros2 launch k3b_arm_moveit_config demo.launch.py
 
 RViz 起来后左下 **MotionPlanning** 面板 → Planning Group 选 `arm` →
 Goal State 选 `ready` → **Plan**。轨迹动画出现就说明配置全对。
-然后 **Execute**，模型会照轨迹走一段 —— demo 用的是 mock 硬件，动是"算出来的"，
-不接任何实机。
+然后 **Execute**，模型会照轨迹走一段。
 
 面板如果是灰的、或 Plan 一直红，跳到第七节那张故障对照表。
+
+#### 要不要 Gazebo？
+
+不需要。除非你要做这几件事之一：
+
+- 验证重力/惯量下手臂会不会抖、舵机扭矩够不够
+- 让夹爪真的去抓一个物块、看它会不会掉
+- 做碰撞力、柔顺接触
+
+那时才需要 Gazebo，而且**必须先改 `inertial`** —— 现在 URDF 里的质量/惯量是占位值
+（`base_link` 1.0 kg、`izz` 都是 0.01），总质量 3.02 kg，跟实物对不上。
+惯量填太小 Gazebo 里手臂会抽。换 Gazebo 时按「体积 × 密度」重算一遍再填。
+
+---
 
 ---
 

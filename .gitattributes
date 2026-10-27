@@ -1,0 +1,30 @@
+# ============================================================================
+# 行尾规范
+# ============================================================================
+# Windows 上 core.autocrlf=true 会把文本在 checkout 时转成 CRLF。对 Python、XML、
+# YAML 无害，但 **shell 脚本会直接坏掉**：
+#     bash tools/bootstrap_wsl_ros2.sh
+#     bash: $'\r': command not found
+# 所以这里强制脚本类文件永远 LF，不管在哪个系统 checkout。
+#
+# 索引里本来就是 LF，加这条规则不产生内容变更，只是锁住行为。
+# ============================================================================
+
+* text=auto eol=lf
+
+# Windows 批处理必须 CRLF，否则 cmd 解析异常（每行末尾的 ^ 续行会失效）
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# 明确按二进制处理，别做行尾转换（会破坏 STL 三角面数据）
+*.stl   binary
+*.step  binary
+*.stp   binary
+*.iges  binary
+*.igs   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.wasm  binary
+*.ico   binary

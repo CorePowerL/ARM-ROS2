@@ -98,7 +98,11 @@ ARM-ROS2/
 
 ### 0. 浏览器预览（无需 ROS）
 
-双击 `k3b_arm_preview.html`，可拖动关节滑块、旋转视角查看机械臂。
+双击 `viewer3d/启动预览.bat`，浏览器打开后访问
+`http://127.0.0.1:8777/k3b_arm_urdf/preview.html` —— 带关节滑块的最新装配预览。
+
+> 别直接双击 `preview.html`：它用绝对路径引 three，`file://` 下会白屏（不报错，只是空）。
+> `k3b_arm_preview.html` 是早期版本，那个可以双击打开。
 
 ### 1. RViz2 预览
 
@@ -126,12 +130,20 @@ xacro k3b_arm_urdf/k3b_arm.urdf.xacro > k3b_arm_urdf/k3b_arm.urdf
 
 配置已经写好在 [`k3b_arm_moveit_config/`](k3b_arm_moveit_config/)，不用再跑 Setup Assistant。
 
+**Windows 上最快的路**：装 WSL2 的 Ubuntu 24.04，然后双击 `tools/启动仿真.bat` ——
+一条龙装 ROS + MoveIt、建工作空间、编译、起 RViz。详见
+[`k3b_arm_moveit_config/README.md`](k3b_arm_moveit_config/README.md) 第零节。
+
+手动做（已在 Linux 上时）：
+
 ```bash
 sudo apt install ros-jazzy-moveit \
                  ros-jazzy-ros2-control ros-jazzy-ros2-controllers \
                  ros-jazzy-joint-state-publisher-gui
 
-colcon build --symlink-install && source install/setup.bash
+# 别在仓库根目录 build：两个包和 viewer3d/、assets/ 平级，会污染仓库
+mkdir -p ~/k3b_ws/src && ln -sfn "$PWD/k3b_arm_urdf" "$PWD/k3b_arm_moveit_config" ~/k3b_ws/src/
+cd ~/k3b_ws && colcon build --symlink-install && source install/setup.bash
 ros2 launch k3b_arm_moveit_config demo.launch.py
 ```
 

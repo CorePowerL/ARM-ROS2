@@ -87,6 +87,35 @@ python tools/emit_gripper.py       # 把结果写进 k3b_arm.urdf.xacro（幂等
 > 定位，重复运行结果一致。它输出的是**数值字面量**，不是 `${...}` 表达式 ——
 > `${-${gear_u}}` 这种嵌套写法 xacro 不会求值，会原样留在 URDF 里。
 
+## 一键装仿真环境（WSL2）
+
+```bash
+# 在 WSL 的 Ubuntu 24.04 里，仓库根目录执行
+bash tools/bootstrap_wsl_ros2.sh            # 只装环境
+bash tools/bootstrap_wsl_ros2.sh --launch    # 装完直接起 RViz
+bash tools/bootstrap_wsl_ros2.sh --check     # 装完只跑配置自检
+```
+
+Windows 侧双击 `tools/启动仿真.bat` 等价于「进 WSL + `--launch`」，会自己定位仓库路径
+（`%~dp0..`），不用手改。发行版没装的话它会提示装 `Ubuntu-24.04`。
+
+做的事，按顺序：
+
+| 步 | 内容 | 幂等判据 |
+|---|---|---|
+| 体检 | Ubuntu 必须是 noble（24.04）；有 `/mnt/wslg` 才提示 RViz 能弹窗 | — |
+| 加源 | `packages.ros.org` 的 keyring + `ros2.list` | 文件已存在就跳过 |
+| 装包 | `ros-jazzy-desktop` + `moveit` + `ros2_control` + `colcon` + `numpy/yaml` | `dpkg -s` 逐个查，只装缺的 |
+| rosdep | `init` + `update` | 失败只 warn（本包无外部依赖） |
+| 工作空间 | `~/k3b_ws/src` 里软链两个包 | `ln -sfn` 天然幂等 |
+| 编译 | `colcon build --symlink-install` | — |
+| 自检 | 跑 `check_moveit_config.py` | — |
+| 收尾 | 把 source 写进 `~/.bashrc` | 查标记行 |
+
+> 脚本**不在仓库根目录 build**：仓库里两个包和 `viewer3d/`、`assets/` 是平级的，
+> 在根目录 `colcon build` 会把 build/install/log 落进仓库，还会把无关目录一起扫。
+> 工作空间目录可以用 `K3B_WS=~/my_ws` 改。
+
 ## 校验 MoveIt 配置
 
 ```bash
