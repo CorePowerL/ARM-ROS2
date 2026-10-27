@@ -337,6 +337,8 @@ function buildSliders() {
   wrap.innerHTML = '';
   for (const j of model.joints) {
     if (j.type === 'fixed') continue;
+    // 等效补偿关节（mimic + prismatic，如夹爪回缩滑座）不占面板，避免刷屏
+    if (j.mimic && j.type === 'prismatic') continue;
     const lin = j.type === 'prismatic';
     const lo = j.type === 'continuous' ? -Math.PI : (j.lower ?? (lin ? 0 : -Math.PI));
     const hi = j.type === 'continuous' ? Math.PI : (j.upper ?? (lin ? 0.01 : Math.PI));

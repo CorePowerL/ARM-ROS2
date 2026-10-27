@@ -375,8 +375,23 @@
       <inertia ixx="0.00002" ixy="0.0" ixz="0.0" iyy="0.00002" iyz="0.0" izz="0.00001"/>
     </inertial>
   </link>
-  <joint name="finger_left_joint" type="revolute">
+  <!-- 滑座：等效四连杆的「爪尖内收」，沿爪轴 -Z 平移，随指片转角线性跟随 -->
+  <link name="finger_left_carriage_link">
+    <inertial>
+      <mass value="0.005"/>
+      <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.0" izz="0.000001"/>
+    </inertial>
+  </link>
+  <joint name="finger_left_carriage_joint" type="prismatic">
     <parent link="gripper_base_link"/>
+    <child link="finger_left_carriage_link"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+    <axis xyz="0 0 -1"/>
+    <limit effort="20.0" lower="0" upper="0.0135" velocity="0.2"/>
+    <mimic joint="finger_left_joint" multiplier="0.032766990291262135" offset="0"/>
+  </joint>
+  <joint name="finger_left_joint" type="revolute">
+    <parent link="finger_left_carriage_link"/>
     <child link="finger_left_link"/>
     <origin rpy="0 0 0" xyz="0.00945 0 0.0227"/>
     <axis xyz="0 1 0"/>
@@ -403,8 +418,22 @@
       <inertia ixx="0.00002" ixy="0.0" ixz="0.0" iyy="0.00002" iyz="0.0" izz="0.00001"/>
     </inertial>
   </link>
-  <joint name="finger_right_joint" type="revolute">
+  <link name="finger_right_carriage_link">
+    <inertial>
+      <mass value="0.005"/>
+      <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.0" izz="0.000001"/>
+    </inertial>
+  </link>
+  <joint name="finger_right_carriage_joint" type="prismatic">
     <parent link="gripper_base_link"/>
+    <child link="finger_right_carriage_link"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+    <axis xyz="0 0 -1"/>
+    <limit effort="20.0" lower="0" upper="0.0135" velocity="0.2"/>
+    <mimic joint="finger_left_joint" multiplier="0.032766990291262135" offset="0"/>
+  </joint>
+  <joint name="finger_right_joint" type="revolute">
+    <parent link="finger_right_carriage_link"/>
     <child link="finger_right_link"/>
     <origin rpy="0 0 0" xyz="-0.01495 0 0.0227"/>
     <axis xyz="0 1 0"/>
