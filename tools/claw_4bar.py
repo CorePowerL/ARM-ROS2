@@ -32,10 +32,10 @@ GEAR_V = 30.0          # 齿轮中心 v（用户卷尺的 0 点）
 
 # ---- 目标实测值 -------------------------------------------------------------
 GAP_CLOSED = 7.5       # mm，合拢时两爪尖内距（卷尺照片 0.7cm）
-GAP_OPEN = 55.0        # mm，全开时两爪尖内距（用户实测 5.5cm）
+GAP_OPEN = 51.0        # mm，全开时两爪尖内距（照片重新标定读数，用户卷尺曾报 55）
 AX_CLOSED = 85.0       # mm，齿轮中心 -> 爪尖（合拢）
 AX_OPEN = 70.0         # mm，齿轮中心 -> 爪尖（全开）
-TH_MAX = 55.0          # deg，S1 行程（对应齿轮中心 -> 爪尖 70mm），emit_gripper 也用它
+TH_MAX = 80.0          # deg，机构锁死前的最大张角（内距在此最大，80° 后开始回缩），emit_gripper 也用它
 
 
 def rot(p, c, ang):
@@ -112,6 +112,7 @@ def report(a):
     print("== 开合扫描（左指；正角 = 张开）==")
     print(f"{'th1°':>7} {'爪尖u':>7} {'爪尖v':>7} {'内距mm':>8} {'轴向mm':>8} {'指片rho°':>9} {'连杆phi°':>9}")
     target = None
+    best = (0.0, 0)
     prev = None
     for i in range(0, 91):
         th = math.radians(i)
@@ -125,6 +126,8 @@ def report(a):
         if i % 5 == 0:
             print(f"{i:7d} {s['tip'][0]:7.2f} {s['tip'][1]:7.2f} {gap:8.2f} {ax:8.2f}"
                   f" {math.degrees(s['rho']):9.2f} {math.degrees(s['phi']):9.2f}")
+        if gap > best[0]:
+            best = (gap, i)
         if target is None and gap >= GAP_OPEN:
             target = (i, s, gap, ax)
     print()
@@ -133,8 +136,8 @@ def report(a):
         print(f"== 达到实测全开内距 {GAP_OPEN}mm：th1 = {i}° ==")
         print(f"  内距 {gap:.2f}mm  轴向 {ax:.2f}mm  (实测轴向 {AX_OPEN})")
     else:
-        print(f"!! 全角域扫不到实测内距 {GAP_OPEN}mm —— 该四连杆几何做不到，")
-        print(f"   说明 55mm 量的不是爪尖内角，或还缺需要复测的尺寸。")
+        print(f"!! 全角域最大内距 {best[0]:.2f}mm（θ={best[1]}°），达不到 {GAP_OPEN}mm ——")
+        print(f"   这套四连杆的天生行程就到这，实测值需另找原因（见 README 校准项）。")
 
     # S1 行程端点（URDF 的 lim_gear）与 mimic 系数
     th = math.radians(TH_MAX)
@@ -143,8 +146,8 @@ def report(a):
         s = solve(math.radians(i), prev if i else None)
         prev = s['B']
     print()
-    print(f"== URDF 参数（S1 行程取 {TH_MAX}°，此点齿轮->爪尖 {GEAR_V - s['tip'][1]:.2f}mm"
-          f"，实测 {AX_OPEN}）==")
+    print(f"== URDF 参数（行程取机构锁死角 {TH_MAX}°，此点内距 "
+          f"{2*s['tip'][0]:.2f}mm，照片读数 {GAP_OPEN}）==")
     print(f"  lim_gear      = {th:.5f} rad ({TH_MAX}°)")
     print(f"  内距          = {2*s['tip'][0]:.2f} mm")
     print(f"  mimic_finger  = {math.degrees(s['rho_rel'])/TH_MAX:+.5f}"

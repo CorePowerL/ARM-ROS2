@@ -24,7 +24,7 @@ import claw_4bar as M
 
 CLAW_X = 0.00275          # m，claw 网格对称面
 CLAW_Z = 0.0277           # m，claw 网格原点 -> gripper_base
-TH_MAX = 55.0             # deg，S1 行程（对应齿轮中心→爪尖 70mm）
+TH_MAX = M.TH_MAX        # deg，机构最大张角（内距在此最大），与 claw_4bar 保持同一来源
 
 
 def _fit(pts, key):
@@ -100,8 +100,8 @@ def props_xml():
   <xacro:property name="s1_x" value="{mm(-GEAR[0] - 0.01003)}"/>
   <xacro:property name="s1_y" value="0.012"/>
 
-  <!-- 行程：S1 850~1500μs -> 齿轮臂 0~55°。55° 时齿轮中心→爪尖 = 68.0mm（实测 70）；
-       机构硬极限在 80°（指间内距 47mm），先到的是舵机行程。 -->
+  <!-- 行程：齿轮臂 0~80°。80° 是机构锁死角（内距最大 47.1mm，再大就回缩），
+       所以 URDF 允许走满全行程，S1 的实际脉宽子区间由实机标定后再收窄。 -->
   <xacro:property name="lim_gear" value="{mm(math.radians(TH_MAX))}"/>
   <!-- 从动件 mimic 系数：按 55° 端点匹配（URDF mimic 只能线性，中段为近似） -->
   <xacro:property name="mimic_finger" value="{MIMIC_F:.5f}"/>

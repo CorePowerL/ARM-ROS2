@@ -4,7 +4,7 @@
   =============================================================
   执行器实测映射（2026-10-25）
 
-  S1  180° 位置   脉宽 850~1500   上电 850    → finger_left      行程 0~10mm
+  S1  180° 位置   脉宽 850~1500   上电 850    → finger_left_gear 0~80°（内距 7.5→47.1mm）
   S2  180° 位置   脉宽 500~2500   上电 1500   → base_yaw         限位 ±90°
   S3  270° 位置   脉宽 500~2000   上电 2000   → shoulder_pitch   限位 ±101°
   S4  270° 位置   脉宽 500~2500   上电 500    → elbow_pitch      限位 ±135°
@@ -12,7 +12,7 @@
   速度 360° 连续   无位置反馈      —          → wrist_roll       无限位(continuous)
 
   · S1~S4 为 WHEELTEC S20F，S5 为 PM15S（暂以 S20F 270° 代替，待实测修正）
-  · finger_right 用 mimic 跟随 finger_left，不单独接舵机
+  · 夹爪是真四连杆，只有 finger_left_gear 接 S1，其余 5 个关节全 mimic（见 tools/claw_4bar.py）
   · wrist_roll 是速度舵机、无位置反馈，MoveIt 逆解时需 disable
 
   机械件按实拍装配（套件为黑色阳极氧化支架 + 银色铝管 + 铝制平行连杆爪）：
@@ -78,12 +78,12 @@
   <xacro:property name="s1_x" value="-0.02348"/>
   <xacro:property name="s1_y" value="0.012"/>
 
-  <!-- 行程：S1 850~1500μs -> 齿轮臂 0~55°。55° 时齿轮中心→爪尖 = 68.0mm（实测 70）；
-       机构硬极限在 80°（指间内距 47mm），先到的是舵机行程。 -->
-  <xacro:property name="lim_gear" value="0.95993"/>
+  <!-- 行程：齿轮臂 0~80°。80° 是机构锁死角（内距最大 47.1mm，再大就回缩），
+       所以 URDF 允许走满全行程，S1 的实际脉宽子区间由实机标定后再收窄。 -->
+  <xacro:property name="lim_gear" value="1.39626"/>
   <!-- 从动件 mimic 系数：按 55° 端点匹配（URDF mimic 只能线性，中段为近似） -->
-  <xacro:property name="mimic_finger" value="-1.12343"/>
-  <xacro:property name="mimic_bar"    value="0.94140"/>
+  <xacro:property name="mimic_finger" value="-1.10533"/>
+  <xacro:property name="mimic_bar"    value="0.96141"/>
   <!-- 各杆碰撞盒（粗） -->
   <xacro:property name="finger_half_w" value="0.00845"/>
   <xacro:property name="finger_len" value="0.0593"/>
