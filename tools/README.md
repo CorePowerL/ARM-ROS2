@@ -49,6 +49,16 @@ python tools/split_claw.py k3b_arm_urdf/meshes/part_claw.stl
 会打印每个分件的尺寸与归属，然后写出 `claw_body.stl` / `finger_left.stl` / `finger_right.stl`。
 判据写在脚本头部（长薄板 = 指片，其余 = 壳体），换别的爪改那三个阈值即可。
 
+## 从实测反解夹爪装配
+
+```bash
+python tools/solve_gripper.py
+```
+
+输入是卷尺量到的 4 个数（齿轮中心→爪尖 85/70mm、腕滚转输出→爪尖 110mm、全开内距 55mm），
+输出 claw 网格该挂在哪、两指该转多少度、以及 `mimic multiplier` 应该取多少。
+两指分别算出的转角比值会打印出来 —— 若接近 `-1` 就说明「一对啮合齿轮」的判断成立。
+
 ## 网页截图自检
 
 `msedge --headless --screenshot` 在新版 Edge 上经常不出文件，改用 CDP：
