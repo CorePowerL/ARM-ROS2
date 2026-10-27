@@ -26,8 +26,7 @@
   =============================================================
 -->
 <robot name="k3b_arm">
-  <!-- 齿轮中心，爪顶下 23.6mm -->
-  <!-- 指片长（Z） -->
+  <!-- claw 网格 -> gripper_base -->
   <!-- ================= 材质 ================= -->
   <material name="base_mat">
     <color rgba="0.10 0.11 0.12 1.0"/>
@@ -307,35 +306,32 @@
     <limit effort="10.0" velocity="6.0"/>
     <dynamics damping="0.1" friction="0.05"/>
   </joint>
-  <!-- ================= 夹爪 ================= -->
-  <!-- 装配基准由实测定（见 tools/solve_gripper.py）：
-       齿轮中心 -> 爪尖 85mm，腕滚转输出 -> 爪尖 110mm，爪长 108.6mm
-       所以爪顶几乎就贴在腕滚转轴上，claw 网格原点距 gripper_base 27.7mm。 -->
+  <!-- ================= 夹爪机身（固定，含 S1） ================= -->
   <link name="gripper_base_link">
-    <!-- S1：输出轴接一只齿轮（= 齿轮中心），机身从爪体 +Y 面外挂 -->
+    <!-- S1：输出轴对准齿轮轴心，机身从爪体 +Y 面外挂 -->
     <visual>
       <geometry>
         <mesh filename="package://k3b_arm_urdf/meshes/s20f.stl"/>
       </geometry>
-      <origin rpy="1.5707963267948966 0 0" xyz="-0.00275 0.013 -0.003"/>
+      <origin rpy="1.5707963267948966 0 0" xyz="-0.02348 0.012 -0.0023"/>
       <material name="servo_mat"/>
     </visual>
-    <!-- 新款机械爪：壳体 + 平行连杆 + 齿轮组 -->
+    <!-- 机械爪壳体：背板 + 舵机支架 + 垫块（齿轮扇形板与连杆已拆成独立杆件） -->
     <visual>
       <geometry>
         <mesh filename="package://k3b_arm_urdf/meshes/claw_body.stl"/>
       </geometry>
-      <origin rpy="0 3.141592653589793 0" xyz="0 0 0.0277"/>
+      <origin rpy="0 3.141592653589793 0" xyz="0.00275 0 0.0277"/>
       <material name="metal_mat"/>
     </visual>
     <collision>
       <geometry>
-        <box size="0.060 0.022 0.078"/>
+        <box size="0.060 0.024 0.050"/>
       </geometry>
-      <origin rpy="0 0 0" xyz="0 0 0.0124"/>
+      <origin rpy="0 0 0" xyz="0 0 0.025"/>
     </collision>
     <inertial>
-      <mass value="0.1"/>
+      <mass value="0.12"/>
       <inertia ixx="0.0001" ixy="0.0" ixz="0.0" iyy="0.0001" iyz="0.0" izz="0.0001"/>
     </inertial>
   </link>
@@ -344,102 +340,187 @@
     <child link="gripper_base_link"/>
     <origin rpy="0 0 0" xyz="0 0 0.028"/>
   </joint>
-  <!-- 末端工具坐标系（抓取参考点，落在爪尖） -->
+  <!-- 末端工具坐标系：两爪尖正中间 -->
   <link name="tool0"/>
   <joint name="tool0_joint" type="fixed">
     <parent link="gripper_base_link"/>
     <child link="tool0"/>
     <origin rpy="0 0 0" xyz="0 0 0.082"/>
   </joint>
-  <!-- ================= J6 左指（S1 经齿轮驱动） ================= -->
-  <!-- 机构：S1 输出轴带一只齿轮，与指片根部的齿轮啮合；两齿轮转向相反，
-       所以两指反向等角摆开 —— 正好就是 mimic multiplier=-1。
-       指片绕自身顶端中心转动（取该点为转轴），0 = 合拢，0.400rad = 全开。 -->
+  <!-- ================= 左齿轮扇形板（S1 侧 / 啮合侧） ================= -->
+  <!-- 输入杆：S1 直接驱动。正向 = 张开（逆时针） -->
+  <link name="finger_left_gear_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://k3b_arm_urdf/meshes/claw_gear_left.stl"/>
+      </geometry>
+      <origin rpy="0 3.141592653589793 0" xyz="-0.01070 0 0.03"/>
+      <material name="metal_mat"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.028 0.006 0.050"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0.015"/>
+    </collision>
+    <inertial>
+      <mass value="0.03"/>
+      <inertia ixx="0.00001" ixy="0.0" ixz="0.0" iyy="0.00001" iyz="0.0" izz="0.00001"/>
+    </inertial>
+  </link>
+  <joint name="finger_left_gear_joint" type="revolute">
+    <parent link="gripper_base_link"/>
+    <child link="finger_left_gear_link"/>
+    <origin rpy="0 0 0" xyz="0.01345 0 -0.0023"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="12.0" lower="0" upper="0.95993" velocity="2.0"/>
+    <dynamics damping="0.5" friction="0.1"/>
+  </joint>
+  <!-- ================= 左指片（连杆 coupler） ================= -->
   <link name="finger_left_link">
     <visual>
       <geometry>
-        <mesh filename="package://k3b_arm_urdf/meshes/finger_left.stl"/>
+        <mesh filename="package://k3b_arm_urdf/meshes/claw_finger_left.stl"/>
       </geometry>
-      <origin rpy="0 3.141592653589793 0" xyz="-0.00945 0 0.0049999999999999975"/>
+      <origin rpy="0 3.141592653589793 0" xyz="-0.01290 0 0.0001"/>
       <material name="link_mat"/>
     </visual>
-    <!-- 转轴系下：X ±8.45、Y -4..1、Z 0..59.3 (mm) -->
     <collision>
       <geometry>
         <box size="0.0169 0.005 0.0593"/>
       </geometry>
-      <origin rpy="0 0 0" xyz="0 -0.0015 0.02965"/>
+      <origin rpy="0 0 0" xyz="-0.0035 -0.0015 0.0247"/>
     </collision>
     <inertial>
       <mass value="0.03"/>
       <inertia ixx="0.00002" ixy="0.0" ixz="0.0" iyy="0.00002" iyz="0.0" izz="0.00001"/>
     </inertial>
   </link>
-  <!-- 滑座：等效四连杆的「爪尖内收」，沿爪轴 -Z 平移，随指片转角线性跟随 -->
-  <link name="finger_left_carriage_link">
+  <joint name="finger_left_joint" type="revolute">
+    <parent link="finger_left_gear_link"/>
+    <child link="finger_left_link"/>
+    <origin rpy="0 0 0" xyz="0.00220 0 0.0299"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="8.0" lower="-1.0784141599" upper="0" velocity="1.5"/>
+    <mimic joint="finger_left_gear_joint" multiplier="-1.12343" offset="0"/>
+    <dynamics damping="1.0" friction="0.2"/>
+  </joint>
+  <!-- ================= 左平行连杆（rocker2） ================= -->
+  <link name="finger_left_bar_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://k3b_arm_urdf/meshes/claw_bar_left.stl"/>
+      </geometry>
+      <origin rpy="0 3.141592653589793 0" xyz="-0.00230 0 0.0093"/>
+      <material name="metal_mat"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.010 0.011 0.030"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="-0.0026 0 -0.0052"/>
+    </collision>
     <inertial>
-      <mass value="0.005"/>
-      <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.0" izz="0.000001"/>
+      <mass value="0.015"/>
+      <inertia ixx="0.000005" ixy="0.0" ixz="0.0" iyy="0.000005" iyz="0.0" izz="0.000005"/>
     </inertial>
   </link>
-  <joint name="finger_left_carriage_joint" type="prismatic">
+  <joint name="finger_left_bar_joint" type="revolute">
     <parent link="gripper_base_link"/>
-    <child link="finger_left_carriage_link"/>
-    <origin rpy="0 0 0" xyz="0 0 0"/>
-    <axis xyz="0 0 -1"/>
-    <limit effort="20.0" lower="0" upper="0.0135" velocity="0.2"/>
-    <mimic joint="finger_left_joint" multiplier="0.032766990291262135" offset="0"/>
-  </joint>
-  <joint name="finger_left_joint" type="revolute">
-    <parent link="finger_left_carriage_link"/>
-    <child link="finger_left_link"/>
-    <origin rpy="0 0 0" xyz="0.00945 0 0.0227"/>
+    <child link="finger_left_bar_link"/>
+    <origin rpy="0 0 0" xyz="0.00505 0 0.0184"/>
     <axis xyz="0 1 0"/>
-    <limit effort="12.0" lower="0" upper="0.412" velocity="1.5"/>
-    <dynamics damping="2.0" friction="0.4"/>
+    <limit effort="8.0" lower="0" upper="0.903678102" velocity="1.5"/>
+    <mimic joint="finger_left_gear_joint" multiplier="0.9414" offset="0"/>
+    <dynamics damping="1.0" friction="0.2"/>
   </joint>
-  <!-- ================= J6 右指（齿轮啮合，反向跟随） ================= -->
+  <!-- ================= 右齿轮扇形板（S1 侧 / 啮合侧） ================= -->
+  <!-- 与左齿轮啮合，转向相反 -> axis 取 -Y，mimic 系数 +1 即为镜像 -->
+  <link name="finger_right_gear_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://k3b_arm_urdf/meshes/claw_gear_right.stl"/>
+      </geometry>
+      <origin rpy="0 3.141592653589793 0" xyz="0.01620 0 0.03"/>
+      <material name="metal_mat"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.028 0.006 0.050"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0.015"/>
+    </collision>
+    <inertial>
+      <mass value="0.03"/>
+      <inertia ixx="0.00001" ixy="0.0" ixz="0.0" iyy="0.00001" iyz="0.0" izz="0.00001"/>
+    </inertial>
+  </link>
+  <joint name="finger_right_gear_joint" type="revolute">
+    <parent link="gripper_base_link"/>
+    <child link="finger_right_gear_link"/>
+    <origin rpy="0 0 0" xyz="-0.01345 0 -0.0023"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="12.0" lower="0" upper="0.95993" velocity="2.0"/>
+    <mimic joint="finger_left_gear_joint" multiplier="1" offset="0"/>
+    <dynamics damping="0.5" friction="0.1"/>
+  </joint>
+  <!-- ================= 右指片（连杆 coupler） ================= -->
   <link name="finger_right_link">
     <visual>
       <geometry>
-        <mesh filename="package://k3b_arm_urdf/meshes/finger_right.stl"/>
+        <mesh filename="package://k3b_arm_urdf/meshes/claw_finger_right.stl"/>
       </geometry>
-      <origin rpy="0 3.141592653589793 0" xyz="0.01495 0 0.0049999999999999975"/>
+      <origin rpy="0 3.141592653589793 0" xyz="0.01840 0 0.0001"/>
       <material name="link_mat"/>
     </visual>
     <collision>
       <geometry>
         <box size="0.0169 0.005 0.0593"/>
       </geometry>
-      <origin rpy="0 0 0" xyz="0 -0.0015 0.02965"/>
+      <origin rpy="0 0 0" xyz="-0.0035 -0.0015 0.0247"/>
     </collision>
     <inertial>
       <mass value="0.03"/>
       <inertia ixx="0.00002" ixy="0.0" ixz="0.0" iyy="0.00002" iyz="0.0" izz="0.00001"/>
     </inertial>
   </link>
-  <link name="finger_right_carriage_link">
+  <joint name="finger_right_joint" type="revolute">
+    <parent link="finger_right_gear_link"/>
+    <child link="finger_right_link"/>
+    <origin rpy="0 0 0" xyz="-0.00220 0 0.0299"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="8.0" lower="-1.0784141599" upper="0" velocity="1.5"/>
+    <mimic joint="finger_left_gear_joint" multiplier="-1.12343" offset="0"/>
+    <dynamics damping="1.0" friction="0.2"/>
+  </joint>
+  <!-- ================= 右平行连杆（rocker2） ================= -->
+  <link name="finger_right_bar_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://k3b_arm_urdf/meshes/claw_bar_right.stl"/>
+      </geometry>
+      <origin rpy="0 3.141592653589793 0" xyz="0.00780 0 0.0093"/>
+      <material name="metal_mat"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.010 0.011 0.030"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="-0.0026 0 -0.0052"/>
+    </collision>
     <inertial>
-      <mass value="0.005"/>
-      <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.0" izz="0.000001"/>
+      <mass value="0.015"/>
+      <inertia ixx="0.000005" ixy="0.0" ixz="0.0" iyy="0.000005" iyz="0.0" izz="0.000005"/>
     </inertial>
   </link>
-  <joint name="finger_right_carriage_joint" type="prismatic">
+  <joint name="finger_right_bar_joint" type="revolute">
     <parent link="gripper_base_link"/>
-    <child link="finger_right_carriage_link"/>
-    <origin rpy="0 0 0" xyz="0 0 0"/>
-    <axis xyz="0 0 -1"/>
-    <limit effort="20.0" lower="0" upper="0.0135" velocity="0.2"/>
-    <mimic joint="finger_left_joint" multiplier="0.032766990291262135" offset="0"/>
-  </joint>
-  <joint name="finger_right_joint" type="revolute">
-    <parent link="finger_right_carriage_link"/>
-    <child link="finger_right_link"/>
-    <origin rpy="0 0 0" xyz="-0.01495 0 0.0227"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="12.0" lower="-0.412" upper="0" velocity="1.5"/>
-    <dynamics damping="2.0" friction="0.4"/>
-    <mimic joint="finger_left_joint" multiplier="-1" offset="0"/>
+    <child link="finger_right_bar_link"/>
+    <origin rpy="0 0 0" xyz="-0.00505 0 0.0184"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="8.0" lower="0" upper="0.903678102" velocity="1.5"/>
+    <mimic joint="finger_left_gear_joint" multiplier="0.9414" offset="0"/>
+    <dynamics damping="1.0" friction="0.2"/>
   </joint>
   <!-- ================= 世界坐标系 ================= -->
   <link name="world"/>

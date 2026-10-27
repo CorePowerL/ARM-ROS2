@@ -1,58 +1,69 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-把 part_claw.stl（21 个独立零件的装配体）拆成三块，供 URDF 做可动夹爪：
+把 part_claw.stl（21 个独立零件的刚性装配体）按**运动副**拆成 7 块，供 URDF 做真四连杆夹爪：
 
-    claw_body.stl      壳体 + 平行连杆 + 舵机支架
-    finger_left.stl    左指（两块 3mm 长夹板）
-    finger_right.stl   右指
+    claw_body.stl          机身：背板 + 舵机支架 + 4 个垫块 + 3 个小垫块
+    claw_gear_left.stl     左齿轮扇形板（圆盘 + 带齿臂）
+    claw_gear_right.stl    右齿轮扇形板
+    claw_bar_left.stl      左平行连杆（两片，Y 正反各一）
+    claw_bar_right.stl     右平行连杆（两片）
+    claw_finger_left.stl   左指片（两片 3mm 夹板）
+    claw_finger_right.stl  右指片（两片）
 
-拆分依据（对 part_claw.stl 实测，单位 m）：
-    整体包围盒  X ±0.0297   Y ±0.0110   Z −0.0543..+0.0543
-    → 张开方向 = X，厚度 = Y，指长 = Z（第 11 号零件起为壳体一侧）
-    四块长夹板（各 16.9×3.0×59.3 mm）就是两根手指，X 中间留 7.5 mm 缝。
+拆分依据 —— 对装配体做顶点焊接 + 并查集得到的 21 个连通分件，
+再用「面数 + 质心 X」分类（比纯包围盒稳，因为同型号零件面数完全相同）：
 
-分类规则（只认长薄板，避免把连杆误判成手指）：
-    sizeZ > 56 mm 且 sizeX < 20 mm 且 sizeY < 6 mm  →  手指板
-    质心 X < 2.75 mm（装配体对称面）→ 左指，否则右指
-    其余全部归壳体。
+    面数 7398 × 4            → 指片（16.9 × 3.0 × 59.3 mm）
+    面数 3036 × 1            → 左齿轮的圆盘（整爪只有一片圆盘）
+    面数 1360 × 2            → 左/右齿轮的带齿臂
+    面数  708 × 4            → 平行连杆（12.2 × 3.0 × 36.5 mm）
+    面数 3040 × 1            → 机身背板（57.0 × 2.0 × 48.0 mm）
+    面数 1112 × 2            → 舵盘夹（19.0 × 10.0 × 10.0 mm）
+    面数  504 × 4            → 大垫块（6.0 × 10.0 × 6.0 mm）
+    面数  368 × 3            → 小垫块（6.0 × 3.0 × 6.0 mm）
+
+质心 X < 2.75 mm（装配体对称面）判为左，否则右。
+
+四连杆拓扑（孔位共点推出，详见 tools/claw_4bar.py）：
+
+    机身 ──G── 齿轮臂 ──A── 指片 ──B── 平行连杆 ──R── 机身
 
 用法：
     python tools/split_claw.py k3b_arm_urdf/meshes/part_claw.stl
 """
 
+import os
 import struct
 import sys
-import os
 from collections import defaultdict
 
-PLANE_X = 0.00275          # 装配体对称面（由 4 块手指板的镜像关系反推）
-FINGER_MIN_Z = 0.056
-FINGER_MAX_X = 0.020
-FINGER_MAX_Y = 0.006
+PLANE_X = 0.00275          # 装配体对称面（m）
+TRI_FINGER = 7398
+TRI_GEAR_DISC = 3036
+TRI_GEAR_ARM = 1360
+TRI_BAR = 708
 
 
 def read_stl(path):
-    """读二进制 STL，返回 (tris, normals)；tris 为 [(v0,v1,v2)]，v 为 3 元组。"""
     data = open(path, "rb").read()
     if len(data) < 84:
         raise ValueError("文件太小，不是二进制 STL")
     n = struct.unpack("<I", data[80:84])[0]
     if len(data) < 84 + n * 50:
         raise ValueError("三角面数量与文件长度不符，可能是 ASCII STL")
-    tris, norms = [], []
+    tris = []
     for i in range(n):
         o = 84 + i * 50
         v = struct.unpack("<12f", data[o:o + 48])
-        norms.append(v[0:3])
         tris.append(tuple(
             tuple(round(c, 6) for c in v[3 + k * 3: 6 + k * 3]) for k in range(3)
         ))
-    return tris, norms
+    return tris
 
 
 def components(tris):
-    """按顶点焊接后做并查集，返回 [[三角面索引...], ...]。"""
+    """顶点焊接后并查集，返回 [[三角面索引...], ...]。"""
     vmap, idx = {}, []
     for t in tris:
         ids = []
@@ -86,8 +97,7 @@ def components(tris):
 
 
 def bbox(tris, tlist):
-    lo = [1e9] * 3
-    hi = [-1e9] * 3
+    lo, hi = [1e9] * 3, [-1e9] * 3
     for ti in tlist:
         for v in tris[ti]:
             for a in range(3):
@@ -114,55 +124,64 @@ def write_stl(path, tris, tlist, name="part"):
             f.write(struct.pack("<H", 0))
 
 
+def classify(cnt, cx):
+    """(面数, 质心X) -> (归属键, 中文名)。"""
+    side = "left" if cx < PLANE_X else "right"
+    zh = "左" if side == "left" else "右"
+    if cnt == TRI_FINGER:
+        return f"claw_finger_{side}.stl", f"{zh}指片"
+    if cnt in (TRI_GEAR_DISC, TRI_GEAR_ARM):
+        return f"claw_gear_{side}.stl", f"{zh}齿轮扇形板"
+    if cnt == TRI_BAR:
+        return f"claw_bar_{side}.stl", f"{zh}平行连杆"
+    return "claw_body.stl", "机身"
+
+
 def main():
     src = sys.argv[1] if len(sys.argv) > 1 else "k3b_arm_urdf/meshes/part_claw.stl"
     outdir = os.path.dirname(src)
 
-    tris, _ = read_stl(src)
+    tris = read_stl(src)
     print(f"读入 {src}：{len(tris)} 个三角面")
-
     comps = components(tris)
     print(f"连通分件：{len(comps)} 个\n")
 
-    body, left, right = [], [], []
+    buckets = defaultdict(list)
     rows = []
-    for ci, tlist in enumerate(comps):
+    for tlist in comps:
         lo, hi = bbox(tris, tlist)
-        size = [hi[a] - lo[a] for a in range(3)]
+        size = [(hi[a] - lo[a]) * 1000 for a in range(3)]
         cx = (lo[0] + hi[0]) / 2
-        is_finger = (size[2] > FINGER_MIN_Z and size[0] < FINGER_MAX_X
-                     and size[1] < FINGER_MAX_Y)
-        if is_finger:
-            if cx < PLANE_X:
-                left += tlist
-                tag = "左指"
-            else:
-                right += tlist
-                tag = "右指"
-        else:
-            body += tlist
-            tag = "壳体"
-        rows.append((ci, len(tlist), size, cx, tag))
+        fn, tag = classify(len(tlist), cx)
+        buckets[fn] += tlist
+        rows.append((len(tlist), size, cx, tag, fn))
 
-    rows.sort(key=lambda r: -r[1])
-    print(f"{'#':>3} {'面数':>7} {'sizeX':>7} {'sizeY':>7} {'sizeZ':>7} {'质心X':>8}  归属")
-    for ci, cnt, size, cx, tag in rows:
-        print(f"{ci:>3} {cnt:>7} {size[0]*1000:>7.1f} {size[1]*1000:>7.1f} "
-              f"{size[2]*1000:>7.1f} {cx*1000:>8.2f}  {tag}")
+    rows.sort(key=lambda r: (-r[0], r[2]))
+    print(f"{'面数':>7} {'sizeX':>7} {'sizeY':>7} {'sizeZ':>7} {'质心X':>8}  归属")
+    for cnt, size, cx, tag, fn in rows:
+        print(f"{cnt:>7} {size[0]:>7.1f} {size[1]:>7.1f} {size[2]:>7.1f} "
+              f"{cx*1000:>8.2f}  {tag}  -> {fn}")
 
-    jobs = [("claw_body.stl", body), ("finger_left.stl", left), ("finger_right.stl", right)]
     print()
-    for fn, tlist in jobs:
+    total = 0
+    for fn in sorted(buckets):
+        tlist = buckets[fn]
         p = os.path.join(outdir, fn)
         write_stl(p, tris, tlist, fn)
         lo, hi = bbox(tris, tlist)
-        print(f"{fn:<18} {len(tlist):>6} 面   "
+        total += len(tlist)
+        print(f"{fn:<24} {len(tlist):>6} 面   "
               f"X {lo[0]*1000:>7.2f}..{hi[0]*1000:>7.2f}  "
               f"Y {lo[1]*1000:>6.2f}..{hi[1]*1000:>6.2f}  "
               f"Z {lo[2]*1000:>7.2f}..{hi[2]*1000:>7.2f}  (mm)")
 
-    if not left or not right:
-        print("\n警告：有一侧没有识别到手指板，请检查分类阈值！")
+    print(f"\n合计 {total} 面（原 {len(tris)}）", end="")
+    if total != len(tris):
+        print("  !! 面数对不上，有零件被漏掉")
+        return 1
+    print("  ✓")
+    if len(buckets) != 7:
+        print(f"警告：只生成 {len(buckets)} 个文件，预期 7 个")
         return 1
     return 0
 

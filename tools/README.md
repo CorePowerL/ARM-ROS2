@@ -46,18 +46,46 @@ node tools/scan.js "D:/.../最新三维图/支架三维图"
 python tools/split_claw.py k3b_arm_urdf/meshes/part_claw.stl
 ```
 
-会打印每个分件的尺寸与归属，然后写出 `claw_body.stl` / `finger_left.stl` / `finger_right.stl`。
-判据写在脚本头部（长薄板 = 指片，其余 = 壳体），换别的爪改那三个阈值即可。
+会打印 21 个连通分件的尺寸与归属，然后按**运动副**写出 7 个文件：
 
-## 从实测反解夹爪装配
-
-```bash
-python tools/solve_gripper.py
+```
+claw_body.stl            8,384 面   背板 + 舵盘夹 + 垫块×9
+claw_gear_left.stl       4,396 面   齿轮圆盘 + 带齿臂
+claw_gear_right.stl      1,360 面   只有带齿臂（整爪只一片圆盘）
+claw_finger_left.stl    14,796 面   长夹板 ×2
+claw_finger_right.stl   14,796 面
+claw_bar_left.stl        1,416 面   平行连杆 ×2
+claw_bar_right.stl       1,416 面
 ```
 
-输入是卷尺量到的 4 个数（齿轮中心→爪尖 85/70mm、腕滚转输出→爪尖 110mm、全开内距 55mm），
-输出 claw 网格该挂在哪、两指该转多少度、以及 `mimic multiplier` 应该取多少。
-两指分别算出的转角比值会打印出来 —— 若接近 `-1` 就说明「一对啮合齿轮」的判断成立。
+分类不用包围盒阈值，而用**三角面数**——同型号零件面数完全相同，比尺寸稳得多。
+判据写在脚本头部常量里（`TRI_FINGER` / `TRI_GEAR_DISC` / `TRI_GEAR_ARM` / `TRI_BAR`）。
+脚本末尾会校验输出面数之和等于原文件面数（46,564），不等就报错；换别的爪改那几个常量即可。
+
+## 四连杆反解（夹爪）
+
+```bash
+python tools/claw_4bar.py          # 打印杆长、Grashof 判定、开合扫描表
+python tools/emit_gripper.py       # 把结果写进 k3b_arm.urdf.xacro（幂等，可反复跑）
+```
+
+`claw_4bar.py` 干三件事：
+
+1. **读销孔**：对每个分件做「内部孔洞检测」——先 flood fill 外部，再找未被填到的连通域，
+   每个域就是一个内孔，取质心即销孔中心。比 `HoughCircles` 稳（透视 + 反光会让圆的
+   检测一颗都出不来）。
+2. **拼拓扑**：按**孔位共点**判断谁和谁共用一根销：
+   `#5∩#7 中心孔 → G`、`#7∩#0 → A`、`#0∩#10 → B`、`#10∩#4 → R`。
+   四杆闭合且长度自洽，说明拆件和判断都对。
+3. **解运动**：圆-圆交点法。给定输入角 θ → A 点（G 绕转）→ B 点 = `圆(R,rocker2) ∩ 圆(A,coupler)`，
+   指片转角由 (A,B) 连线求刚体旋转。扫 0→55° 输出开合曲线，端点拟合出 `<mimic>` 倍率。
+
+实测杆长：`rocker1 29.98 / coupler 21.01 / rocker2 29.96 / ground 22.34 mm`
+→ Grashof 判定为**双摇杆**（最短杆是 coupler），齿轮臂只摆动不整圈。
+
+> `emit_gripper.py` 只改 xacro 里的「夹爪参数块 + 夹爪 link/joint 块」，靠多锚点字符串
+> 定位，重复运行结果一致。它输出的是**数值字面量**，不是 `${...}` 表达式 ——
+> `${-${gear_u}}` 这种嵌套写法 xacro 不会求值，会原样留在 URDF 里。
 
 ## 网页截图自检
 

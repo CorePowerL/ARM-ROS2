@@ -46,31 +46,47 @@
   <xacro:property name="lim_wpitch" value="2.2340"/>   <!-- S5  270°  ±128° -->
   <xacro:property name="joint_speed" value="1.5"/>
 
-  <!-- ===== 夹爪（实测定，见 tools/solve_gripper.py） =====
-       claw 网格自己的坐标系：爪尖 Z=-54.3、爪顶 Z=+54.3、厚 Y=+-11
-       齿轮中心 = 爪尖往 +Z 量 85mm  =>  claw Z=+30.7
-       腕滚转输出 -> 爪尖 110mm、爪长 108.6mm  =>  爪顶几乎贴住腕轴
-       claw 网格原点距 gripper_base = 54.3 - 28 + 1.4 = 27.7mm -->
-  <xacro:property name="claw_z" value="0.0277"/>
-  <xacro:property name="gear_x" value="-0.00275"/>   <!-- 齿轮中心，claw X=+2.75 镜像后 -->
-  <xacro:property name="gear_z" value="-0.0030"/>    <!-- 齿轮中心，爪顶下 23.6mm -->
+  <!-- ===== 夹爪：真四连杆（孔位反解，见 tools/claw_4bar.py） =====
+       part_claw.stl 的 21 个连通分件按「孔位共点」关系，确定是一条四连杆链：
 
-  <!-- 指片转角限位：0 = 合拢（内距 7.5mm），0.400rad(22.9°) = 全开（内距 55mm） -->
-  <xacro:property name="lim_finger" value="0.412"/>
+           机身 ──G── 齿轮臂 ──A── 指片 ──B── 平行连杆 ──R── 机身
+          (ground)  rocker1   coupler   rocker2        (ground)
+          杆长 30.0          21.0        30.0          22.3  mm
 
-  <!-- 张开时爪尖的回缩量（m）。实机是四连杆，爪尖走的是耦合曲线：
-       合拢 85mm -> 全开 70mm，即张开过程爪尖同时向内收约 13.5mm。
-       单个转动关节做不出这一段，用「沿爪轴平移」等效补偿。
-       纯转动模型（不补偿）把这里置 0 即可。 -->
-  <xacro:property name="finger_pullback" value="0.0135"/>
-  <!-- 指片转轴（取指片顶端中心），claw 系 -> link 系后 -->
-  <xacro:property name="finger_piv_lx" value="0.00945"/>
-  <xacro:property name="finger_piv_rx" value="-0.01495"/>
-  <xacro:property name="finger_piv_z" value="0.0227"/>
-  <!-- 指片 visual 原点补偿：claw_z - 转轴 z（转轴在指片顶端，不在 claw 原点） -->
-  <xacro:property name="finger_vis_off" value="${claw_z - finger_piv_z}"/>
-  <xacro:property name="finger_half_w" value="0.00845"/>  <!-- 指片半宽（X） -->
-  <xacro:property name="finger_len" value="0.0593"/>      <!-- 指片长（Z） -->
+       S1 输出轴带一只齿轮扇形板，与另一只扇形板啮合，两者转向相反 ——
+       所以左右两指严格镜像；右指全部 mimic 左指，轴取 (0 -1 0)。
+
+       本块所有坐标都在 gripper_base 系，对称面 = X=0、爪轴 = +Z
+       （claw 网格 Xc=2.75 / Zc=+27.7 映射到原点，见 claw_x / claw_z）。 -->
+  <xacro:property name="claw_x" value="0.00275"/>   <!-- claw 网格对称面 -->
+  <xacro:property name="claw_z" value="0.02770"/>   <!-- claw 网格 -> gripper_base -->
+
+  <!-- G 齿轮轴心 -->
+  <xacro:property name="gear_u" value="0.01345"/>
+  <xacro:property name="gear_z" value="-0.00230"/>
+  <xacro:property name="gear_v" value="0.03000"/>
+  <!-- R 平行连杆根部销 -->
+  <xacro:property name="bar_u"  value="0.00505"/>
+  <xacro:property name="bar_z"  value="0.01840"/>
+  <xacro:property name="bar_v"  value="0.00930"/>
+  <!-- A 指根销（相对齿轮轴） -->
+  <xacro:property name="pa_u"   value="0.00220"/>
+  <xacro:property name="pa_z"   value="0.02990"/>
+  <xacro:property name="pa_v"   value="0.00010"/>
+
+  <!-- S1：输出轴落在齿轮轴心上，机身向 +Y 外挂 -->
+  <xacro:property name="s1_x" value="-0.02348"/>
+  <xacro:property name="s1_y" value="0.012"/>
+
+  <!-- 行程：S1 850~1500μs -> 齿轮臂 0~55°。55° 时齿轮中心→爪尖 = 68.0mm（实测 70）；
+       机构硬极限在 80°（指间内距 47mm），先到的是舵机行程。 -->
+  <xacro:property name="lim_gear" value="0.95993"/>
+  <!-- 从动件 mimic 系数：按 55° 端点匹配（URDF mimic 只能线性，中段为近似） -->
+  <xacro:property name="mimic_finger" value="-1.12343"/>
+  <xacro:property name="mimic_bar"    value="0.94140"/>
+  <!-- 各杆碰撞盒（粗） -->
+  <xacro:property name="finger_half_w" value="0.00845"/>
+  <xacro:property name="finger_len" value="0.0593"/>
 
   <!-- ================= 网格 ================= -->
   <xacro:property name="mesh_dir" value="package://k3b_arm_urdf/meshes/"/>
@@ -315,29 +331,26 @@
     <dynamics damping="0.1" friction="0.05"/>
   </joint>
 
-  <!-- ================= 夹爪 ================= -->
-  <!-- 装配基准由实测定（见 tools/solve_gripper.py）：
-       齿轮中心 -> 爪尖 85mm，腕滚转输出 -> 爪尖 110mm，爪长 108.6mm
-       所以爪顶几乎就贴在腕滚转轴上，claw 网格原点距 gripper_base 27.7mm。 -->
+  <!-- ================= 夹爪机身（固定，含 S1） ================= -->
   <link name="gripper_base_link">
-    <!-- S1：输出轴接一只齿轮（= 齿轮中心），机身从爪体 +Y 面外挂 -->
+    <!-- S1：输出轴对准齿轮轴心，机身从爪体 +Y 面外挂 -->
     <visual>
       <geometry><mesh filename="${mesh_dir}s20f.stl"/></geometry>
-      <origin xyz="${gear_x} 0.013 ${gear_z}" rpy="${pi/2} 0 0"/>
+      <origin xyz="${s1_x} ${s1_y} ${gear_z}" rpy="${pi/2} 0 0"/>
       <material name="servo_mat"/>
     </visual>
-    <!-- 新款机械爪：壳体 + 平行连杆 + 齿轮组 -->
+    <!-- 机械爪壳体：背板 + 舵机支架 + 垫块（齿轮扇形板与连杆已拆成独立杆件） -->
     <visual>
       <geometry><mesh filename="${mesh_dir}claw_body.stl"/></geometry>
-      <origin xyz="0 0 ${claw_z}" rpy="0 ${pi} 0"/>
+      <origin xyz="${claw_x} 0 ${claw_z}" rpy="0 ${pi} 0"/>
       <material name="metal_mat"/>
     </visual>
     <collision>
-      <geometry><box size="0.060 0.022 0.078"/></geometry>
-      <origin xyz="0 0 0.0124" rpy="0 0 0"/>
+      <geometry><box size="0.060 0.024 0.050"/></geometry>
+      <origin xyz="0 0 0.025" rpy="0 0 0"/>
     </collision>
     <inertial>
-      <mass value="0.1"/>
+      <mass value="0.12"/>
       <inertia ixx="0.0001" ixy="0.0" ixz="0.0" iyy="0.0001" iyz="0.0" izz="0.0001"/>
     </inertial>
   </link>
@@ -347,7 +360,7 @@
     <origin xyz="0 0 0.028" rpy="0 0 0"/>
   </joint>
 
-  <!-- 末端工具坐标系（抓取参考点，落在爪尖） -->
+  <!-- 末端工具坐标系：两爪尖正中间 -->
   <link name="tool0"/>
   <joint name="tool0_joint" type="fixed">
     <parent link="gripper_base_link"/>
@@ -355,88 +368,161 @@
     <origin xyz="0 0 0.082" rpy="0 0 0"/>
   </joint>
 
-  <!-- ================= J6 左指（S1 经齿轮驱动） ================= -->
-  <!-- 机构：S1 输出轴带一只齿轮，与指片根部的齿轮啮合；两齿轮转向相反，
-       所以两指反向等角摆开 —— 正好就是 mimic multiplier=-1。
-       指片绕自身顶端中心转动（取该点为转轴），0 = 合拢，0.400rad = 全开。 -->
-  <link name="finger_left_link">
+  <!-- ================= 左齿轮扇形板（S1 侧 / 啮合侧） ================= -->
+  <!-- 输入杆：S1 直接驱动。正向 = 张开（逆时针） -->
+  <link name="finger_left_gear_link">
     <visual>
-      <geometry><mesh filename="${mesh_dir}finger_left.stl"/></geometry>
-      <origin xyz="${-finger_piv_lx} 0 ${finger_vis_off}" rpy="0 ${pi} 0"/>
-      <material name="link_mat"/>
+      <geometry><mesh filename="${mesh_dir}claw_gear_left.stl"/></geometry>
+      <origin xyz="-0.01070 0 ${gear_v}" rpy="0 ${pi} 0"/>
+      <material name="metal_mat"/>
     </visual>
-    <!-- 转轴系下：X ±8.45、Y -4..1、Z 0..59.3 (mm) -->
     <collision>
-      <geometry><box size="${finger_half_w*2} 0.005 ${finger_len}"/></geometry>
-      <origin xyz="0 -0.0015 ${finger_len/2}" rpy="0 0 0"/>
+      <geometry><box size="0.028 0.006 0.050"/></geometry>
+      <origin xyz="0 0 0.015" rpy="0 0 0"/>
     </collision>
     <inertial>
       <mass value="0.03"/>
-      <inertia ixx="0.00002" ixy="0.0" ixz="0.0" iyy="0.00002" iyz="0.0" izz="0.00001"/>
+      <inertia ixx="0.00001" ixy="0.0" ixz="0.0" iyy="0.00001" iyz="0.0" izz="0.00001"/>
     </inertial>
   </link>
-  <!-- 滑座：等效四连杆的「爪尖内收」，沿爪轴 -Z 平移，随指片转角线性跟随 -->
-  <link name="finger_left_carriage_link">
-    <inertial>
-      <mass value="0.005"/>
-      <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.0" izz="0.000001"/>
-    </inertial>
-  </link>
-  <joint name="finger_left_carriage_joint" type="prismatic">
+  <joint name="finger_left_gear_joint" type="revolute">
     <parent link="gripper_base_link"/>
-    <child link="finger_left_carriage_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-    <axis xyz="0 0 -1"/>
-    <limit lower="0" upper="${finger_pullback}" effort="20.0" velocity="0.2"/>
-    <mimic joint="finger_left_joint" multiplier="${finger_pullback/lim_finger}" offset="0"/>
-  </joint>
-  <joint name="finger_left_joint" type="revolute">
-    <parent link="finger_left_carriage_link"/>
-    <child link="finger_left_link"/>
-    <origin xyz="${finger_piv_lx} 0 ${finger_piv_z}" rpy="0 0 0"/>
+    <child link="finger_left_gear_link"/>
+    <origin xyz="0.01345 0 ${gear_z}" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="0" upper="${lim_finger}" effort="12.0" velocity="1.5"/>
-    <dynamics damping="2.0" friction="0.4"/>
+    <limit lower="0" upper="${lim_gear}" effort="12.0" velocity="2.0"/>
+    <dynamics damping="0.5" friction="0.1"/>
   </joint>
 
-  <!-- ================= J6 右指（齿轮啮合，反向跟随） ================= -->
-  <link name="finger_right_link">
+  <!-- ================= 左指片（连杆 coupler） ================= -->
+  <link name="finger_left_link">
     <visual>
-      <geometry><mesh filename="${mesh_dir}finger_right.stl"/></geometry>
-      <origin xyz="${-finger_piv_rx} 0 ${finger_vis_off}" rpy="0 ${pi} 0"/>
+      <geometry><mesh filename="${mesh_dir}claw_finger_left.stl"/></geometry>
+      <origin xyz="-0.01290 0 ${pa_v}" rpy="0 ${pi} 0"/>
       <material name="link_mat"/>
     </visual>
     <collision>
       <geometry><box size="${finger_half_w*2} 0.005 ${finger_len}"/></geometry>
-      <origin xyz="0 -0.0015 ${finger_len/2}" rpy="0 0 0"/>
+      <origin xyz="-0.0035 -0.0015 0.0247" rpy="0 0 0"/>
     </collision>
     <inertial>
       <mass value="0.03"/>
       <inertia ixx="0.00002" ixy="0.0" ixz="0.0" iyy="0.00002" iyz="0.0" izz="0.00001"/>
     </inertial>
   </link>
-  <link name="finger_right_carriage_link">
+  <joint name="finger_left_joint" type="revolute">
+    <parent link="finger_left_gear_link"/>
+    <child link="finger_left_link"/>
+    <origin xyz="0.00220 0 ${pa_z}" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="${mimic_finger*lim_gear}" upper="0" effort="8.0" velocity="1.5"/>
+    <mimic joint="finger_left_gear_joint" multiplier="${mimic_finger}" offset="0"/>
+    <dynamics damping="1.0" friction="0.2"/>
+  </joint>
+
+  <!-- ================= 左平行连杆（rocker2） ================= -->
+  <link name="finger_left_bar_link">
+    <visual>
+      <geometry><mesh filename="${mesh_dir}claw_bar_left.stl"/></geometry>
+      <origin xyz="-0.00230 0 ${bar_v}" rpy="0 ${pi} 0"/>
+      <material name="metal_mat"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.010 0.011 0.030"/></geometry>
+      <origin xyz="-0.0026 0 -0.0052" rpy="0 0 0"/>
+    </collision>
     <inertial>
-      <mass value="0.005"/>
-      <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.0" izz="0.000001"/>
+      <mass value="0.015"/>
+      <inertia ixx="0.000005" ixy="0.0" ixz="0.0" iyy="0.000005" iyz="0.0" izz="0.000005"/>
     </inertial>
   </link>
-  <joint name="finger_right_carriage_joint" type="prismatic">
+  <joint name="finger_left_bar_joint" type="revolute">
     <parent link="gripper_base_link"/>
-    <child link="finger_right_carriage_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-    <axis xyz="0 0 -1"/>
-    <limit lower="0" upper="${finger_pullback}" effort="20.0" velocity="0.2"/>
-    <mimic joint="finger_left_joint" multiplier="${finger_pullback/lim_finger}" offset="0"/>
-  </joint>
-  <joint name="finger_right_joint" type="revolute">
-    <parent link="finger_right_carriage_link"/>
-    <child link="finger_right_link"/>
-    <origin xyz="${finger_piv_rx} 0 ${finger_piv_z}" rpy="0 0 0"/>
+    <child link="finger_left_bar_link"/>
+    <origin xyz="0.00505 0 ${bar_z}" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-${lim_finger}" upper="0" effort="12.0" velocity="1.5"/>
-    <dynamics damping="2.0" friction="0.4"/>
-    <mimic joint="finger_left_joint" multiplier="-1" offset="0"/>
+    <limit lower="0" upper="${mimic_bar*lim_gear}" effort="8.0" velocity="1.5"/>
+    <mimic joint="finger_left_gear_joint" multiplier="${mimic_bar}" offset="0"/>
+    <dynamics damping="1.0" friction="0.2"/>
+  </joint>
+
+  <!-- ================= 右齿轮扇形板（S1 侧 / 啮合侧） ================= -->
+  <!-- 与左齿轮啮合，转向相反 -> axis 取 -Y，mimic 系数 +1 即为镜像 -->
+  <link name="finger_right_gear_link">
+    <visual>
+      <geometry><mesh filename="${mesh_dir}claw_gear_right.stl"/></geometry>
+      <origin xyz="0.01620 0 ${gear_v}" rpy="0 ${pi} 0"/>
+      <material name="metal_mat"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.028 0.006 0.050"/></geometry>
+      <origin xyz="0 0 0.015" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="0.03"/>
+      <inertia ixx="0.00001" ixy="0.0" ixz="0.0" iyy="0.00001" iyz="0.0" izz="0.00001"/>
+    </inertial>
+  </link>
+  <joint name="finger_right_gear_joint" type="revolute">
+    <parent link="gripper_base_link"/>
+    <child link="finger_right_gear_link"/>
+    <origin xyz="-0.01345 0 ${gear_z}" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="0" upper="${lim_gear}" effort="12.0" velocity="2.0"/>
+    <mimic joint="finger_left_gear_joint" multiplier="1" offset="0"/>
+    <dynamics damping="0.5" friction="0.1"/>
+  </joint>
+
+  <!-- ================= 右指片（连杆 coupler） ================= -->
+  <link name="finger_right_link">
+    <visual>
+      <geometry><mesh filename="${mesh_dir}claw_finger_right.stl"/></geometry>
+      <origin xyz="0.01840 0 ${pa_v}" rpy="0 ${pi} 0"/>
+      <material name="link_mat"/>
+    </visual>
+    <collision>
+      <geometry><box size="${finger_half_w*2} 0.005 ${finger_len}"/></geometry>
+      <origin xyz="-0.0035 -0.0015 0.0247" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="0.03"/>
+      <inertia ixx="0.00002" ixy="0.0" ixz="0.0" iyy="0.00002" iyz="0.0" izz="0.00001"/>
+    </inertial>
+  </link>
+  <joint name="finger_right_joint" type="revolute">
+    <parent link="finger_right_gear_link"/>
+    <child link="finger_right_link"/>
+    <origin xyz="-0.00220 0 ${pa_z}" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="${mimic_finger*lim_gear}" upper="0" effort="8.0" velocity="1.5"/>
+    <mimic joint="finger_left_gear_joint" multiplier="${mimic_finger}" offset="0"/>
+    <dynamics damping="1.0" friction="0.2"/>
+  </joint>
+
+  <!-- ================= 右平行连杆（rocker2） ================= -->
+  <link name="finger_right_bar_link">
+    <visual>
+      <geometry><mesh filename="${mesh_dir}claw_bar_right.stl"/></geometry>
+      <origin xyz="0.00780 0 ${bar_v}" rpy="0 ${pi} 0"/>
+      <material name="metal_mat"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.010 0.011 0.030"/></geometry>
+      <origin xyz="-0.0026 0 -0.0052" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="0.015"/>
+      <inertia ixx="0.000005" ixy="0.0" ixz="0.0" iyy="0.000005" iyz="0.0" izz="0.000005"/>
+    </inertial>
+  </link>
+  <joint name="finger_right_bar_joint" type="revolute">
+    <parent link="gripper_base_link"/>
+    <child link="finger_right_bar_link"/>
+    <origin xyz="-0.00505 0 ${bar_z}" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="0" upper="${mimic_bar*lim_gear}" effort="8.0" velocity="1.5"/>
+    <mimic joint="finger_left_gear_joint" multiplier="${mimic_bar}" offset="0"/>
+    <dynamics damping="1.0" friction="0.2"/>
   </joint>
 
   <!-- ================= 世界坐标系 ================= -->

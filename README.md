@@ -28,14 +28,14 @@
 
 | 舵机 | 类型 | 脉宽范围(μs) | 上电初始 | URDF 关节名 | 作用 | 限位(相对直立位) |
 |---|---|---|---|---|---|---|
-| S1 | 180° 位置 | 850–1500 | 850 | `finger_left_joint` | 夹爪开合（输出轴带齿轮） | 0 ~ 23.6° |
+| S1 | 180° 位置 | 850–1500 | 850 | `finger_left_gear_joint` | 夹爪开合（输出轴带齿轮） | 0 ~ 55° |
 | S2 | 180° 位置 | 500–2500 | 1500 | `base_yaw` | 底座偏航 | ±90° |
 | S3 | 270° 位置 | 500–2000 | 2000 | `shoulder_pitch` | 肩俯仰 | ±101° |
 | S4 | 270° 位置 | 500–2500 | 500 | `elbow_pitch` | 肘俯仰 | ±135° |
 | S5 | 270° 位置 | 600–2500 | 1500 | `wrist_pitch` | 腕俯仰 | ±128° |
 | 速度舵机 | 360° 连续 | — | — | `wrist_roll` | 夹爪旋转 | 无限位(continuous) |
 
-> `finger_right_joint` 通过 `<mimic joint="finger_left_joint" multiplier="-1"/>` 跟随左指，不单独接舵机。
+> 夹爪是四连杆，只有 `finger_left_gear_joint` 接 S1，其余 5 个关节由 `<mimic>` 按反解倍率带动。
 > `wrist_roll` 是速度舵机，无位置反馈，URDF 中为 `continuous` 类型，不参与 MoveIt 逆解。
 
 ## 关节结构
@@ -47,14 +47,19 @@
 | `elbow_pitch` | revolute | Y | S4 | 肘俯仰 | ±135° |
 | `wrist_pitch` | revolute | Y | S5 | 腕俯仰 | ±128° |
 | `wrist_roll` | **continuous** | Z | DS3120 | 腕滚转（速度舵机） | 无限位 |
-| `finger_left/right` | revolute | Y | S1 | 两指夹爪（一对啮合齿轮，右指 mimic 反向） | 0–23.6° |
-| `finger_*_carriage` | prismatic | −Z | (mimic) | 爪尖随张开的回缩量，等效四连杆 | 0–13.5mm |
+| `finger_*_gear_joint` | revolute | ±Y | **S1**(左) | 齿轮扇形板（输入杆 / 啮合侧镜像） | 0–55° |
+| `finger_*_joint` | revolute | ±Y | mimic −1.12343 | 指片 coupler | 0 ~ −61.8° |
+| `finger_*_bar_joint` | revolute | ±Y | mimic +0.94140 | 平行连杆 rocker2 | 0 ~ +51.8° |
 
 末端工具坐标系：`tool0`。**全关节为 0 = 直臂垂直 + 夹爪合拢**，限位均相对该位姿定义。
 
-> **夹爪机构**：S1 输出轴带一只齿轮，与指片根部的齿轮啮合。一对齿轮转向相反，所以两指反向等角摆开 —— `mimic multiplier=-1` 正好就是这对齿轮的关系。逆时针（CCW）张开、顺时针（CW）闭合。指间内距 7.5mm（合拢）→ **55mm**（全开，实测）。
-> 齿轮中心 → 爪尖：合拢 **85mm**、全开 **70mm**（都是实测）。张开时爪尖一边外摆一边朝齿轮
-> 收 15mm，这是四连杆的耦合位移，单铰做不出来，所以每指还串一级 13.5mm 的 mimic 平移。
+> **夹爪机构**：S1 输出轴带一只齿轮，与对称侧的齿轮扇形板啮合 —— 一对齿轮转向相反，
+> 所以右指整条链取 `axis=(0 −1 0)`，倍率与左指相同。逆时针（CCW）张开、顺时针（CW）闭合。
+> 每侧四杆闭合：`机身—G—齿轮臂—A—指片—B—平行连杆—R—机身`，
+> 杆长 **29.98 / 21.01 / 29.96 / 22.34 mm**（由 STL 销孔坐标反解，非卷尺量）。
+> Grashof 判定为**双摇杆**，齿轮臂只摆动不整圈。
+> 齿轮中心 → 爪尖：合拢 **84.3mm**、全开 **68.0mm**（实测 85 / 70）。
+> 详细反解过程见 [`k3b_arm_urdf/README.md`](k3b_arm_urdf/README.md)。
 
 ## 目录结构
 
@@ -119,7 +124,8 @@ ros2 run moveit_setup_assistant moveit_setup_assistant
 导入 `k3b_arm.urdf`，规划组：
 - `arm`：**4 个位置关节**（`base_yaw` + `shoulder_pitch` + `elbow_pitch` + `wrist_pitch`）
   - **不要把 `wrist_roll` 加入规划组**——它是 360° 速度舵机，无位置反馈，不做逆解
-- `gripper`：`finger_left_joint`（revolute 0~23.6°；右指 mimic 反向跟随）
+- `gripper`：**只放 `finger_left_gear_joint`**（revolute 0~0.95993 rad）；其余 5 个从动关节都是
+  mimic，不要重复加进组，否则会被当成独立自由度
 - 逆解：默认 KDL，效果差换 TRAC-IK
 
 ## 开发路线
@@ -144,7 +150,10 @@ ros2 run moveit_setup_assistant moveit_setup_assistant
 2. **关节限位实测**：避免规划到卡死位置
 3. **轴朝向核对**：与实物安装方向一致
 4. **真实质量/惯量**：Gazebo 物理仿真前必须填写
-5. **夹爪转角**：`lim_finger`(0.412rad) 按「全开内距 55mm」反解，需实测 S1 850→1500μs 时两指真实摆角核对，并确认 CCW = 张开
+5. **夹爪开度复测**：模型全开内距 41.9mm ↔ 实测 55mm，但齿轮中心→爪尖 68.0mm ↔ 实测 70mm 基本对上。
+   需确认 55mm 量的是爪尖内角还是外角/齿口 —— 该四连杆几何硬极限（齿轮角 80°）也只有 47mm 内距。
+6. **`<mimic>` 是线性近似**：倍率按 55° 端点精确拟合，中段与真四连杆有 ≤2mm 残差；
+   要精确就用 `ros2_control` 自定义 controller 直接调 `tools/claw_4bar.py` 的 `solve()`。
 
 ## 角度→脉宽映射（STM32 侧）
 
@@ -161,7 +170,7 @@ b = 直立位（θ=0）对应的脉宽        # 需实测
 
 | 舵机 | 脉宽 p_min–p_max | 上电初始 | 关节 |
 |---|---|---|---|
-| S1 | 850–1500 | 850 | finger_left（850=合拢，1500=全开，**CCW 张开 / CW 闭合**） |
+| S1 | 850–1500 | 850 | finger_left_gear（850=合拢，1500=全开，**CCW 张开 / CW 闭合**） |
 | S2 | 500–2500 | 1500 | base_yaw |
 | S3 | 500–2000 | 2000 | shoulder_pitch |
 | S4 | 500–2500 | 500 | elbow_pitch |

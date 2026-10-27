@@ -187,8 +187,7 @@ const SERVO_OF = {
   elbow_pitch: 'S4 · 270°',
   wrist_pitch: 'S5 · 270°(PM15S 代)',
   wrist_roll: '速度 · 360°',
-  finger_left_joint: 'S1 · 180° 齿轮',
-  finger_right_joint: 'mimic 左指',
+  finger_left_gear_joint: 'S1 · 180° 齿轮臂（正=张开）',
 };
 
 async function build(urdfText) {
@@ -337,8 +336,8 @@ function buildSliders() {
   wrap.innerHTML = '';
   for (const j of model.joints) {
     if (j.type === 'fixed') continue;
-    // 等效补偿关节（mimic + prismatic，如夹爪回缩滑座）不占面板，避免刷屏
-    if (j.mimic && j.type === 'prismatic') continue;
+    // 四连杆的从动件（指片 / 平行连杆 / 右侧齿轮）全由 S1 带动，不占面板
+    if (j.mimic) continue;
     const lin = j.type === 'prismatic';
     const lo = j.type === 'continuous' ? -Math.PI : (j.lower ?? (lin ? 0 : -Math.PI));
     const hi = j.type === 'continuous' ? Math.PI : (j.upper ?? (lin ? 0.01 : Math.PI));
